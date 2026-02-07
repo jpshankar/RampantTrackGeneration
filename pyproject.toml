@@ -25,5 +25,5 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = ""
-Issues = ""
+Homepage = "https://github.com/jpshankar/RampantTrackGeneration"
+Issues = "https://github.com/jpshankar/RampantTrackGeneration/issues"
