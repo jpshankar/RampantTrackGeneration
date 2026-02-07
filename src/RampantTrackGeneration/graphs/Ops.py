@@ -1,0 +1,63 @@
+from ..edges.data import EdgeVertexInfo
+
+from networkx import Graph
+from networkx.algorithms import approximation as nxApproximation
+
+from uuid import uuid4
+
+from voronout.Point import Point
+
+class Ops:
+    @staticmethod
+    def graphVertex(graph: Graph, vertexId: uuid4) -> Point:
+        if graph.has_node(n = vertexId):
+            vertex = graph.nodes[vertexId]
+            return Point(x = vertex["x"], y = vertex["y"])
+        else:
+            return None
+        
+    @staticmethod
+    def graphEdgeLength(graph: Graph, edge: EdgeVertexInfo) -> float:
+        return graph.edges[edge.vertex0Id, edge.vertex1Id]["edgeLength"]
+        
+    @staticmethod
+    def scaledGraphPointDistance(graph: Graph, p1: Point, p2: Point):
+        graphWidthScalar = 1 / graph.graph["width"]
+        graphHeightScalar = 1 / graph.graph["height"]
+
+        scaledP1 = p1.scale(widthScalar = graphWidthScalar, heightScalar = graphHeightScalar)
+        scaledP2 = p2.scale(widthScalar = graphWidthScalar, heightScalar = graphHeightScalar)
+
+        return Point.distance(p1 = scaledP1, p2 = scaledP2)
+    
+    @staticmethod
+    def addVertexToGraph(graph: Graph, vertexId: uuid4, vertexX: float, vertexY: float):
+        if not graph.has_node(n = vertexId):
+            graph.add_node(node_for_adding = vertexId, x = vertexX, y = vertexY)
+
+    @staticmethod
+    def addConnectionToGraph(graph: Graph, connection: EdgeVertexInfo, vertexDistance: float):
+        vertex0Id = connection.vertex0Id
+        vertex1Id = connection.vertex1Id
+
+        if not graph.has_edge(u = vertex0Id, v = vertex1Id):
+            graph.add_edge(u_of_edge = vertex0Id, v_of_edge = vertex1Id, edgeLength = vertexDistance)
+
+    @staticmethod
+    def removeEdgeAndReturnDisconnected(edgeGraph: Graph, existingEdge: EdgeVertexInfo) -> tuple[tuple[EdgeVertexInfo]]:
+        existingEdgeVertex0Id = existingEdge.vertex0Id
+        existingEdgeVertex1Id = existingEdge.vertex1Id
+
+        beforeExistingConnectivities = nxApproximation.all_pairs_node_connectivity(G = edgeGraph)
+
+        vertex0ConnectivityBeforeDeletion = beforeExistingConnectivities[existingEdgeVertex0Id]
+        vertex1ConnectivityBeforeDeletion = beforeExistingConnectivities[existingEdgeVertex1Id]
+
+        edgeGraph.remove_edge(u = existingEdgeVertex0Id, v = existingEdgeVertex1Id)
+        afterExistingConnectivities = nxApproximation.all_pairs_node_connectivity(G = edgeGraph)
+
+        disconnectedByDeletionVertex0 = tuple((maybeDisconnectedVertex for (maybeDisconnectedVertex, numConnectionsLeft) in afterExistingConnectivities[existingEdgeVertex0Id].items() if numConnectionsLeft == 0 and vertex0ConnectivityBeforeDeletion[maybeDisconnectedVertex] > 0))
+        disconnectedByDeletionVertex1 = tuple((maybeDisconnectedVertex for (maybeDisconnectedVertex, numConnectionsLeft) in afterExistingConnectivities[existingEdgeVertex1Id].items() if numConnectionsLeft == 0 and vertex1ConnectivityBeforeDeletion[maybeDisconnectedVertex] > 0))
+
+        return (disconnectedByDeletionVertex0, disconnectedByDeletionVertex1)
+
