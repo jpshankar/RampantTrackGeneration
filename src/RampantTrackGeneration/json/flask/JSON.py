@@ -13,7 +13,7 @@ class FlaskRampantTrackGenerationJSONProvider(DefaultJSONProvider):
 
     def dumps(self, obj, **kw):
         if isinstance(obj, Track):
-            stopObj = {self.loads(repr(stopLine)): list((self.loads(repr(lineStop)) for lineStop in lineStops)) for (stopLine, lineStops) in obj.stops.items()}
+            stopObj = {self.loads(repr(stopLine)): self.loads(f'[{",".join((repr(lineStop) for lineStop in lineStops))}]') for (stopLine, lineStops) in obj.stops.items()}
             
             return {
                 'nodes': self._handlePointDict(obj.nodes),
