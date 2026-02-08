@@ -317,9 +317,9 @@ class TrackGenerator:
         TrackGenerator._pruneIntersectionEdgesFromExistingConnectionsGraph(existingConnectionsGraph = existingConnections, intersectionEdges = intersectionEdges)
         TrackGenerator._handleLonelyExistingConnections(existingConnectionsGraph = existingConnections, lonelyConnectionMinLengthQuantile = lonelyConnectionMinLengthQuantile)
 
-        edges = tuple((EdgeVertexInfo(vertex0Id = vertex0Id, vertex1Id = vertex1Id) for (vertex0Id, vertex1Id) in existingConnections.edges))
+        edges = {uuid4(): EdgeVertexInfo(vertex0Id = vertex0Id, vertex1Id = vertex1Id) for (vertex0Id, vertex1Id) in existingConnections.edges}
         
-        stops = { edge: TrackGenerator._generateStopsOnConnection(connectionGraph = existingConnections, connection = edge, connectionLengthVertexPadding = connectionLengthVertexPadding, connectionLengthNodeBuffer = connectionLengthNodeBuffer) for edge in edges}
+        stops = { edgeId: TrackGenerator._generateStopsOnConnection(connectionGraph = existingConnections, connection = edge, connectionLengthVertexPadding = connectionLengthVertexPadding, connectionLengthNodeBuffer = connectionLengthNodeBuffer) for (edgeId, edge) in edges.items()}
         
         nodes = { nodeId: GraphOps.graphVertex(graph = existingConnections, vertexId = nodeId) for nodeId in existingConnections.nodes}
 

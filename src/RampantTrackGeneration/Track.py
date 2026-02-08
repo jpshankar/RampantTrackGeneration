@@ -9,5 +9,5 @@ from voronout.Point import Point
 @dataclass(frozen=True)
 class Track:
     nodes: dict[uuid4, Point]
-    stops: dict[EdgeVertexInfo, tuple[Point]]
-    edges: tuple[EdgeVertexInfo]
+    stops: dict[uuid4, tuple[Point]]
+    edges: dict[uuid4, EdgeVertexInfo]
