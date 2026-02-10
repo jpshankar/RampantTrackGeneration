@@ -44,6 +44,19 @@ class Ops:
             graph.add_edge(u_of_edge = vertex0Id, v_of_edge = vertex1Id, edgeLength = vertexDistance)
 
     @staticmethod
+    def removeEdgeAndCleanUpNodes(edgeGraph: Graph, existingEdge: EdgeVertexInfo):
+        existingEdgeVertex0Id = existingEdge.vertex0Id
+        existingEdgeVertex1Id = existingEdge.vertex1Id
+
+        edgeGraph.remove_edge(u = existingEdgeVertex0Id, v = existingEdgeVertex1Id)
+
+        if not bool(tuple(edgeGraph.neighbors(n = existingEdgeVertex0Id))):
+            edgeGraph.remove_node(n = existingEdgeVertex0Id)
+
+        if not bool(tuple(edgeGraph.neighbors(n = existingEdgeVertex1Id))):
+            edgeGraph.remove_node(n = existingEdgeVertex1Id)
+
+    @staticmethod
     def removeEdgeAndReturnDisconnected(edgeGraph: Graph, existingEdge: EdgeVertexInfo) -> tuple[tuple[EdgeVertexInfo]]:
         existingEdgeVertex0Id = existingEdge.vertex0Id
         existingEdgeVertex1Id = existingEdge.vertex1Id
@@ -53,11 +66,15 @@ class Ops:
         vertex0ConnectivityBeforeDeletion = beforeExistingConnectivities[existingEdgeVertex0Id]
         vertex1ConnectivityBeforeDeletion = beforeExistingConnectivities[existingEdgeVertex1Id]
 
-        edgeGraph.remove_edge(u = existingEdgeVertex0Id, v = existingEdgeVertex1Id)
+        Ops.removeEdgeAndCleanUpNodes(edgeGraph = edgeGraph, existingEdge = existingEdge)
+
         afterExistingConnectivities = nxApproximation.all_pairs_node_connectivity(G = edgeGraph)
 
-        disconnectedByDeletionVertex0 = tuple((maybeDisconnectedVertex for (maybeDisconnectedVertex, numConnectionsLeft) in afterExistingConnectivities[existingEdgeVertex0Id].items() if numConnectionsLeft == 0 and vertex0ConnectivityBeforeDeletion[maybeDisconnectedVertex] > 0))
-        disconnectedByDeletionVertex1 = tuple((maybeDisconnectedVertex for (maybeDisconnectedVertex, numConnectionsLeft) in afterExistingConnectivities[existingEdgeVertex1Id].items() if numConnectionsLeft == 0 and vertex1ConnectivityBeforeDeletion[maybeDisconnectedVertex] > 0))
+        afterExistingConnectivitiesVertex0 = afterExistingConnectivities[existingEdgeVertex0Id] if existingEdgeVertex0Id in afterExistingConnectivities else {}
+        afterExistingConnectivitiesVertex1 = afterExistingConnectivities[existingEdgeVertex1Id] if existingEdgeVertex1Id in afterExistingConnectivities else {}
+
+        disconnectedByDeletionVertex0 = tuple((maybeDisconnectedVertex for (maybeDisconnectedVertex, numConnectionsLeft) in afterExistingConnectivitiesVertex0.items() if numConnectionsLeft == 0 and vertex0ConnectivityBeforeDeletion[maybeDisconnectedVertex] > 0))
+        disconnectedByDeletionVertex1 = tuple((maybeDisconnectedVertex for (maybeDisconnectedVertex, numConnectionsLeft) in afterExistingConnectivitiesVertex1.items() if numConnectionsLeft == 0 and vertex1ConnectivityBeforeDeletion[maybeDisconnectedVertex] > 0))
 
         return (disconnectedByDeletionVertex0, disconnectedByDeletionVertex1)
 

@@ -59,6 +59,7 @@ class TrackGenerator:
         
         for potentialConnectingVertexId in potentialConnectingVertexIds:
             potentialConnectionVertex = existingConnectionsGraph.nodes[potentialConnectingVertexId]
+
             GraphOps.addVertexToGraph(graph = existingConnectionsGraph, vertexId = potentialConnectingVertexId, vertexX = potentialConnectionVertex["x"], vertexY = potentialConnectionVertex["y"])
 
             potentialConnection = EdgeVertexInfo(vertex0Id = vertexToUpdateId, vertex1Id = potentialConnectingVertexId)
@@ -85,7 +86,7 @@ class TrackGenerator:
             safeToRemoveEdgeLength = GraphOps.graphEdgeLength(graph = existingConnectionsGraph, edge = safeToRemoveEdge)
             (disconnectedVertex0, disconnectedVertex1) = GraphOps.removeEdgeAndReturnDisconnected(edgeGraph = existingConnectionsGraph, existingEdge = safeToRemoveEdge)
             if len(disconnectedVertex0) > 0 or len(disconnectedVertex1) > 0:
-                # Need to disconnect/reconnect like this because refreshing existingConnectionsNodeCutSets after every removal is too expensive
+                # Need to disconnect/reconnect like this because refreshing existingConnectionsNodeCutSets after every removal is computationally too expensive
                 existingConnectionsGraph.add_edge(u_of_edge = safeToRemoveEdge.vertex0Id, v_of_edge = safeToRemoveEdge.vertex1Id, edgeLength = safeToRemoveEdgeLength)
 
     @staticmethod
@@ -106,42 +107,46 @@ class TrackGenerator:
 
             if not len(zeroNeighbors) > 1 or not len(oneNeighbors) > 1:
                 if existingConnectionEdgeLength < existingConnectionEdgeMinQuantile:
-                    existingConnectionsGraph.remove_edge(u = existingEdgeVertex0Id, v = existingEdgeVertex1Id)
+                    GraphOps.removeEdgeAndCleanUpNodes(edgeGraph = existingConnectionsGraph, existingEdge = existingConnectionEdgeInfo)
 
     # https://math.stackexchange.com/questions/134112/find-a-point-on-a-line-segment-located-at-a-distance-d-from-one-endpoint
     @staticmethod
-    def _generateStopsOnConnection(connectionGraph: Graph, connection: EdgeVertexInfo, connectionLengthVertexPadding: float, connectionLengthNodeBuffer: float) -> tuple[Point]:
-        connectionVertexZeroId = connection.vertex0Id
-        connectionVertexZero = connectionGraph.nodes[connectionVertexZeroId]
-
-        connectionVertexOneId = connection.vertex1Id
-        connectionVertexOne = connectionGraph.nodes[connectionVertexOneId]
-
-        zeroIsFirstVertex = connectionVertexZero["x"] < connectionVertexOne["x"]
-
-        firstVertex = connectionVertexZero if zeroIsFirstVertex else connectionVertexOne
-        secondVertex = connectionVertexZero if not zeroIsFirstVertex else connectionVertexOne
-
+    def _generateStopsOnConnection(connectionGraph: Graph, connection: EdgeVertexInfo, connectionLengthVertexPadding: float, connectionLengthNodeBuffer: float, minEdgeLengthForStopsGeneration: float) -> tuple[Point]:
         connectionLength = GraphOps.graphEdgeLength(graph = connectionGraph, edge = connection)
-
-        connectionXRangeMinInterval = (connectionLengthVertexPadding + connectionLengthNodeBuffer) * connectionLength
-        connectionXRangeMaxInterval = connectionLength - connectionXRangeMinInterval
-
-        connectionNodes = []
-
-        while connectionXRangeMinInterval < connectionXRangeMaxInterval:
-            d = random.uniform(connectionXRangeMinInterval, connectionXRangeMaxInterval)        
-            td = d / connectionLength
-
-            nextX = firstVertex["x"] + ((secondVertex["x"] - firstVertex["x"]) * td)
-            nextY = firstVertex["y"] + ((secondVertex["y"] - firstVertex["y"]) * td)
-            
-            nextPoint = Point(x = nextX, y = nextY)
-            connectionNodes.append(nextPoint)
-
-            connectionXRangeMinInterval = d + (connectionLengthNodeBuffer * connectionLength)
         
-        return tuple(connectionNodes)
+        # Only meaningfully generate stops if length is at least larger than ((connectionLengthVertexPadding + connectionLengthNodeBuffer) * 100) percent of edges.
+        if (connectionLength >= minEdgeLengthForStopsGeneration):
+            connectionVertexZeroId = connection.vertex0Id
+            connectionVertexZero = connectionGraph.nodes[connectionVertexZeroId]
+
+            connectionVertexOneId = connection.vertex1Id
+            connectionVertexOne = connectionGraph.nodes[connectionVertexOneId]
+
+            zeroIsFirstVertex = connectionVertexZero["x"] < connectionVertexOne["x"]
+
+            firstVertex = connectionVertexZero if zeroIsFirstVertex else connectionVertexOne
+            secondVertex = connectionVertexZero if not zeroIsFirstVertex else connectionVertexOne
+
+            connectionXRangeMinInterval = (connectionLengthVertexPadding + connectionLengthNodeBuffer) * connectionLength
+            connectionXRangeMaxInterval = connectionLength - connectionXRangeMinInterval
+
+            connectionNodes = []
+
+            while connectionXRangeMinInterval < connectionXRangeMaxInterval:
+                d = random.uniform(connectionXRangeMinInterval, connectionXRangeMaxInterval)        
+                td = d / connectionLength
+
+                nextX = firstVertex["x"] + ((secondVertex["x"] - firstVertex["x"]) * td)
+                nextY = firstVertex["y"] + ((secondVertex["y"] - firstVertex["y"]) * td)
+                
+                nextPoint = Point(x = nextX, y = nextY)
+                connectionNodes.append(nextPoint)
+
+                connectionXRangeMinInterval = d + (connectionLengthNodeBuffer * connectionLength)
+            
+            return tuple(connectionNodes)
+        else:
+            return tuple()
                 
     @staticmethod
     def generateTrack(
@@ -176,10 +181,6 @@ class TrackGenerator:
 
         for vertexId in voronoiVertices.keys():
             edgesWithVertex = set((maybeEdgeWithPoint for maybeEdgeWithPoint in voronoiDiagramEdges if maybeEdgeWithPoint.vertex0Id == vertexId or maybeEdgeWithPoint.vertex1Id == vertexId))
-            
-            if not len(edgesWithVertex) > 0:
-                print(f"discarding {vertexId}")
-                pass
             
             for edgeWithPoint in edgesWithVertex:
                 pointEdgeVertex0Id = edgeWithPoint.vertex0Id
@@ -245,13 +246,12 @@ class TrackGenerator:
                 maybeViableConnection = TrackGenerator._findPossibleViableConnection(graph = existingConnections, possibleConnections = tuple(possibleConnections), minAcceptableAngle = initialDiagramMinAcceptableAngle)
 
                 if maybeViableConnection:
-                    print(f"reconnecting to {maybeViableConnection}")
                     maybeViableVertexLength = GraphOps.graphEdgeLength(graph = potentialConnections, edge = maybeViableConnection) 
 
                     maybeViableVertex0Id = maybeViableConnection.vertex0Id
                     maybeViableVertex1Id = maybeViableConnection.vertex1Id
 
-                    potentialConnections.remove_edge(u = maybeViableVertex0Id, v = maybeViableVertex1Id)
+                    GraphOps.removeEdgeAndCleanUpNodes(edgeGraph = potentialConnections, existingEdge = maybeViableConnection)
                     
                     # calculate intersections
                     potentialIntersections = tuple((EdgeVertexInfo(vertex0Id = vertex0Id, vertex1Id = vertex1Id) for (vertex0Id, vertex1Id) in existingConnections.edges if (vertex0Id != maybeViableVertex0Id and vertex0Id != maybeViableVertex1Id) and (vertex1Id != maybeViableVertex0Id and vertex1Id != maybeViableVertex1Id)))
@@ -267,7 +267,6 @@ class TrackGenerator:
                             distanceToIntersection = GraphOps.scaledGraphPointDistance(graph = existingConnections, p1 = precedingVertex, p2 = edgeIntersectionPoint)
 
                             edgeIntersectionPointId = uuid4()
-                            print(f"creating intersection point {edgeIntersectionPointId}")
 
                             existingConnections.add_node(node_for_adding = edgeIntersectionPointId, x = edgeIntersectionPoint.x, y = edgeIntersectionPoint.y)
 
@@ -278,16 +277,16 @@ class TrackGenerator:
 
                             edgeIntersectedVertex0Id = edgeIntersected.vertex0Id
                             edgeIntersectedVertex1Id = edgeIntersected.vertex1Id
-                            
-                            print(f"handling intersected edge {edgeIntersectedVertex0Id}, {edgeIntersectedVertex1Id}")
-                            
+                                                        
                             edgeIntersectedVertex0 = GraphOps.graphVertex(graph = existingConnections, vertexId = edgeIntersectedVertex0Id)
                             edgeIntersectedVertex1 = GraphOps.graphVertex(graph = existingConnections, vertexId = edgeIntersectedVertex1Id)
 
                             iv0DistanceToIntersection = GraphOps.scaledGraphPointDistance(graph = existingConnections, p1 = edgeIntersectedVertex0, p2 = edgeIntersectionPoint)
                             iv1DistanceToIntersection = GraphOps.scaledGraphPointDistance(graph = existingConnections, p1 = edgeIntersectionPoint, p2 = edgeIntersectedVertex1)
 
+                            # No need to remove " orphaned " nodes here, since they'll subsequently be re-added with the handling of intersection edges.
                             existingConnections.remove_edge(u = edgeIntersectedVertex0Id, v = edgeIntersectedVertex1Id)
+                            
                             if edgeIntersected in intersectionEdges:
                                 intersectionEdges.remove(edgeIntersected)
 
@@ -311,16 +310,19 @@ class TrackGenerator:
                         intersectionEdges.append(EdgeVertexInfo(vertex0Id = precedingVertexId, vertex1Id = maybeViableVertex1Id))
                     else:
                         existingConnections.add_edge(u_of_edge = maybeViableVertex0Id, v_of_edge = maybeViableVertex1Id, edgeLength = maybeViableVertexLength)
-                else:
-                    print(f"skipping edge {diagramEdgesToProcess}")
 
         TrackGenerator._pruneIntersectionEdgesFromExistingConnectionsGraph(existingConnectionsGraph = existingConnections, intersectionEdges = intersectionEdges)
         TrackGenerator._handleLonelyExistingConnections(existingConnectionsGraph = existingConnections, lonelyConnectionMinLengthQuantile = lonelyConnectionMinLengthQuantile)
 
         edges = {uuid4(): EdgeVertexInfo(vertex0Id = vertex0Id, vertex1Id = vertex1Id) for (vertex0Id, vertex1Id) in existingConnections.edges}
+
+        edgeLengths = tuple((GraphOps.graphEdgeLength(graph = existingConnections, edge = edge) for edge in edges.values()))
+        minEdgeStopLengthQuantile = connectionLengthVertexPadding + connectionLengthNodeBuffer
+
+        minEdgeStopLength = numpy.quantile(a = edgeLengths, q = minEdgeStopLengthQuantile)
         
-        stops = { edgeId: TrackGenerator._generateStopsOnConnection(connectionGraph = existingConnections, connection = edge, connectionLengthVertexPadding = connectionLengthVertexPadding, connectionLengthNodeBuffer = connectionLengthNodeBuffer) for (edgeId, edge) in edges.items()}
-        
+        stops = { edgeId: TrackGenerator._generateStopsOnConnection(connectionGraph = existingConnections, connection = edge, connectionLengthVertexPadding = connectionLengthVertexPadding, connectionLengthNodeBuffer = connectionLengthNodeBuffer, minEdgeLengthForStopsGeneration = minEdgeStopLength) for (edgeId, edge) in edges.items()}
+
         nodes = { nodeId: GraphOps.graphVertex(graph = existingConnections, vertexId = nodeId) for nodeId in existingConnections.nodes}
 
         return Track(nodes = nodes, stops = stops, edges = edges)
