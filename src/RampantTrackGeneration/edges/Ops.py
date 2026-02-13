@@ -16,6 +16,7 @@ class Ops:
         else:
             return (edgePoint2.y - edgePoint1.y)/(edgePoint2.x - edgePoint1.x)
         
+    # https://www.mathstopia.net/coordinate-geometry/angle-two-lines
     @staticmethod
     def _angleBetweenEdges(edgeGraph: Graph, edge0: EdgeVertexInfo, edge1: EdgeVertexInfo) -> float:
         edge0Slope = Ops._edgeSlope(edgePoint1 = GraphOps.graphVertex(graph = edgeGraph, vertexId = edge0.vertex0Id), edgePoint2 = GraphOps.graphVertex(graph = edgeGraph, vertexId = edge0.vertex1Id))

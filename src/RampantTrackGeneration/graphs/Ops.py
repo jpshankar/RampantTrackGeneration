@@ -20,6 +20,7 @@ class Ops:
     def graphEdgeLength(graph: Graph, edge: EdgeVertexInfo) -> float:
         return graph.edges[edge.vertex0Id, edge.vertex1Id]["edgeLength"]
         
+    # Scaling p1 and p2 back down to Voronout's 0 -> 1 scale, to maintain congruity.
     @staticmethod
     def scaledGraphPointDistance(graph: Graph, p1: Point, p2: Point):
         graphWidthScalar = 1 / graph.graph["width"]
