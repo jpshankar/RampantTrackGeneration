@@ -4,7 +4,7 @@ from ..graphs.Ops import Ops as GraphOps
 
 from math import atan, degrees
 
-from networkx import Graph
+from rustworkx import PyGraph as Graph
 
 from voronout.Point import Point
 
