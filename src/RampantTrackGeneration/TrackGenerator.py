@@ -7,7 +7,7 @@ from .graphs.Ops import Ops as GraphOps
 
 from math import floor
 
-from rustworkx import articulation_points, PyGraph as Graph
+from rustworkx import articulation_points, connected_components, PyGraph as Graph
 
 from voronout.Point import Point
 from voronout.VoronoiDiagram import VoronoiDiagram
@@ -126,6 +126,98 @@ class TrackGenerator:
 
             if not len(zeroNeighbors) > 1 or not len(oneNeighbors) > 1:
                 GraphOps.removeEdgeAndCleanUpNodes(graph = existingConnectionsGraph, existingEdge = existingConnectionEdgeInfo)
+
+    @staticmethod
+    def _doLargestCollinearReconnection(graph: Graph, edgeToCombine: EdgeVertexInfo, collinearEdges: tuple[EdgeVertexInfo], intersectionEdges: tuple[EdgeVertexInfo]) -> bool:
+        edgesByLengths = []
+        for collinearEdge in collinearEdges:
+            # Extract the combined edge by removing the common vertex.
+            (combinationVertex0Id, combinationVertex1Id) = set((edgeToCombine.vertex0Id, edgeToCombine.vertex1Id)) ^ set((collinearEdge.vertex0Id, collinearEdge.vertex1Id))
+            combinationLength = GraphOps.scaledGraphPointDistance(graph = graph, p1 = GraphOps.graphVertex(graph = graph, vertexId = combinationVertex0Id), p2 = GraphOps.graphVertex(graph = graph, vertexId = combinationVertex1Id))
+
+            collinearEdgeVertexInfo = EdgeVertexInfo(vertex0Id = combinationVertex0Id, vertex1Id = combinationVertex1Id)
+            edgesByLengths.append((collinearEdgeVertexInfo, collinearEdge, combinationLength))
+
+        if bool(edgesByLengths):
+            # ebl[-1] = combinationLength
+            (collinearReconnection, collinearEdge, collinearReconnectionLength) = sorted(edgesByLengths, key = lambda ebl: ebl[-1], reverse = True)[0]
+
+            GraphOps.removeEdgeAndCleanUpNodes(graph = graph, existingEdge = edgeToCombine)
+            if edgeToCombine in intersectionEdges:
+                intersectionEdges.remove(edgeToCombine)
+
+            GraphOps.removeEdgeAndCleanUpNodes(graph = graph, existingEdge = collinearEdge)
+            if collinearEdge in intersectionEdges:
+                intersectionEdges.remove(collinearEdge)
+
+            collinearConnectionEdge = GraphEdge(edgeId = uuid4(), edgeVertices = collinearReconnection, edgeLength = collinearReconnectionLength)
+
+            GraphOps.addConnectionToGraph(graph = graph, connectionEdge = collinearConnectionEdge)
+
+            return True
+        else:
+            # If edgesByLengths is empty, return False.
+            return False
+        
+    @staticmethod
+    def _doEasiestReconnection(graph: Graph, edgeToReconnect: EdgeVertexInfo, edgeVertex0Neighbors: tuple[EdgeVertexInfo], edgeVertex1Neighbors: tuple[EdgeVertexInfo], intersectionEdges: tuple[EdgeVertexInfo]) -> bool:
+        edgeVertex0Id = edgeToReconnect.vertex0Id
+        edgeVertex1Id = edgeToReconnect.vertex1Id
+        
+        # easiest = least nodes to reconnect
+        easierToReconnectFromVertex0 = len(edgeVertex0Neighbors) < len(edgeVertex1Neighbors)
+
+        vertexToDisconnectFromId = edgeVertex0Id if easierToReconnectFromVertex0 else edgeVertex1Id
+        vertexEdgesToReconnect = edgeVertex0Neighbors if easierToReconnectFromVertex0 else edgeVertex1Neighbors
+
+        vertexToConnectToId = edgeVertex1Id if easierToReconnectFromVertex0 else edgeVertex0Id
+
+        for vertexEdgeToReconnect in vertexEdgesToReconnect:
+            if GraphOps.graphEdge(graph = graph, edgeVertexInfo = vertexEdgeToReconnect):
+                GraphOps.removeEdgeAndCleanUpNodes(graph = graph, existingEdge = vertexEdgeToReconnect)
+
+                if vertexEdgeToReconnect in intersectionEdges:
+                    intersectionEdges.remove(vertexEdgeToReconnect)
+
+                edgeToReconnectVertex0Id = vertexEdgeToReconnect.vertex0Id
+                edgeToReconnectVertex1Id = vertexEdgeToReconnect.vertex1Id
+
+                vertexToConnectFromId = edgeToReconnectVertex1Id if edgeToReconnectVertex0Id == vertexToDisconnectFromId else edgeToReconnectVertex0Id
+
+                if GraphOps.graphVertex(graph = graph, vertexId = vertexToConnectFromId) and GraphOps.graphVertex(graph = graph, vertexId = vertexToConnectToId):
+                    reconnectionVertices = EdgeVertexInfo(vertex0Id = vertexToConnectFromId, vertex1Id = vertexToConnectToId)
+                    reconnectionDistance = GraphOps.scaledGraphPointDistance(graph = graph, p1 = GraphOps.graphVertex(graph = graph, vertexId = edgeToReconnectVertex0Id), p2 = GraphOps.graphVertex(graph = graph, vertexId = edgeToReconnectVertex1Id))
+
+                    reconnectionEdge = GraphEdge(edgeId = uuid4(), edgeVertices = reconnectionVertices, edgeLength = reconnectionDistance)
+                    GraphOps.addConnectionToGraph(graph = graph, connectionEdge = reconnectionEdge)
+
+        if GraphOps.graphEdge(graph = graph, edgeVertexInfo = edgeToReconnect):
+            GraphOps.removeEdgeAndCleanUpNodes(graph = graph, existingEdge = edgeToReconnect)
+        return True
+
+    @staticmethod
+    def _adjustTooSmallEdges(existingConnectionsGraph: Graph, edgesToAdjust: tuple[GraphEdge], intersectionEdges: tuple[EdgeVertexInfo]):
+        for edgeToAdjust in edgesToAdjust:
+            edgeToAdjustVertices = edgeToAdjust.edgeVertices
+
+            edgeToAdjustVertex0Id = edgeToAdjustVertices.vertex0Id
+            edgeToAdjustVertex1Id = edgeToAdjustVertices.vertex1Id
+
+            edgeToAdjustVertex0Neighbors = GraphOps.graphVertexNeighbors(graph = existingConnectionsGraph, vertexId = edgeToAdjustVertex0Id)
+            vertex0NeighborConnections = tuple((EdgeVertexInfo(vertex0Id = edgeToAdjustVertex0Id, vertex1Id = vertex0NeighborId) for vertex0NeighborId in edgeToAdjustVertex0Neighbors if vertex0NeighborId != edgeToAdjustVertex1Id))
+
+            edgeToAdjustVertex1Neighbors = GraphOps.graphVertexNeighbors(graph = existingConnectionsGraph, vertexId = edgeToAdjustVertex1Id)
+            vertex1NeighborConnections = tuple((EdgeVertexInfo(vertex0Id = edgeToAdjustVertex1Id, vertex1Id = vertex1NeighborId) for vertex1NeighborId in edgeToAdjustVertex1Neighbors if vertex1NeighborId != edgeToAdjustVertex0Id))
+
+            vertexNeighborConnections = vertex0NeighborConnections + vertex1NeighborConnections
+            
+            collinearEdges = tuple((vertexNeighborConnection for vertexNeighborConnection in vertexNeighborConnections if EdgesOps.edgesAreCollinear(edgeGraph = existingConnectionsGraph, edge0 = edgeToAdjustVertices, edge1 = vertexNeighborConnection)))
+
+            # We either adjust via combining it with the largest collinear edge..
+            adjustedViaCollinearity = TrackGenerator._doLargestCollinearReconnection(graph = existingConnectionsGraph, edgeToCombine = edgeToAdjustVertices, collinearEdges = collinearEdges, intersectionEdges = intersectionEdges)
+            if not adjustedViaCollinearity:
+                # .. or by deleting the edge and doing the easiest reconnection.
+                TrackGenerator._doEasiestReconnection(graph = existingConnectionsGraph, edgeToReconnect = edgeToAdjustVertices, edgeVertex0Neighbors = vertex0NeighborConnections, edgeVertex1Neighbors = vertex1NeighborConnections, intersectionEdges = intersectionEdges)
 
     # https://math.stackexchange.com/questions/134112/find-a-point-on-a-line-segment-located-at-a-distance-d-from-one-endpoint
     @staticmethod
@@ -374,10 +466,28 @@ class TrackGenerator:
 
         minEdgeStopLength = numpy.quantile(a = edgeLengths, q = minEdgeStopLengthQuantile)
         
-        stops = { existingConnectionEdge.edgeId: TrackGenerator._generateStopsOnConnection(connectionGraph = existingConnections, connection = existingConnectionEdge.edgeVertices, connectionLengthVertexPadding = connectionLengthVertexPadding, connectionLengthNodeBuffer = connectionLengthNodeBuffer, minEdgeLengthForStopsGeneration = minEdgeStopLength) for existingConnectionEdge in existingConnectionEdges}
+        # minEdgeAdjustLength determined via trial-and-error - what value prunes " too-small " edges without sacrificing visual variety?
+        minEdgeAdjustLength = minEdgeStopLength / 8
+        edgesToAdjust = tuple((existingConnectionEdge for existingConnectionEdge in existingConnectionEdges if existingConnectionEdge.edgeLength < minEdgeAdjustLength))
 
-        nodes = { existingConnectionNode.nodeId: GraphOps.graphVertex(graph = existingConnections, vertexId = existingConnectionNode.nodeId) for existingConnectionNode in existingConnections.nodes()}
+        TrackGenerator._adjustTooSmallEdges(existingConnectionsGraph = existingConnections, edgesToAdjust = edgesToAdjust, intersectionEdges = intersectionEdges)
 
-        edges = { existingConnectionsEdge.edgeId: existingConnectionsEdge.edgeVertices for existingConnectionsEdge in existingConnectionEdges }
+        existingConnectionComponents = connected_components(existingConnections)
+        finalizedExistingConnections = existingConnections
+
+        # If all of the above resulted in disconnected subsets of edges, just take the largest subset as the Track.
+        if len(existingConnectionComponents) > 1:
+            existingConnectionComponentsSorted = sorted(existingConnectionComponents, key = lambda gs: len(gs), reverse = True)
+            largestExistingConnectionComponent = tuple(existingConnectionComponentsSorted[0])
+
+            finalizedExistingConnections = existingConnections.subgraph(nodes = largestExistingConnectionComponent, preserve_attrs = True)
+        
+        finalizedExistingConnectionEdges = finalizedExistingConnections.edges()
+
+        stops = { existingConnectionEdge.edgeId: TrackGenerator._generateStopsOnConnection(connectionGraph = finalizedExistingConnections, connection = existingConnectionEdge.edgeVertices, connectionLengthVertexPadding = connectionLengthVertexPadding, connectionLengthNodeBuffer = connectionLengthNodeBuffer, minEdgeLengthForStopsGeneration = minEdgeStopLength) for existingConnectionEdge in finalizedExistingConnectionEdges}
+
+        nodes = { existingConnectionNode.nodeId: GraphOps.graphVertex(graph = finalizedExistingConnections, vertexId = existingConnectionNode.nodeId) for existingConnectionNode in finalizedExistingConnections.nodes()}
+
+        edges = { existingConnectionsEdge.edgeId: existingConnectionsEdge.edgeVertices for existingConnectionsEdge in finalizedExistingConnectionEdges }
 
         return Track(nodes = nodes, stops = stops, edges = edges)

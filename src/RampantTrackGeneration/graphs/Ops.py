@@ -60,7 +60,7 @@ class Ops:
         
     # Scaling p1 and p2 back down to Voronout's 0 -> 1 scale, to maintain congruity.
     @staticmethod
-    def scaledGraphPointDistance(graph: Graph, p1: Point, p2: Point):
+    def scaledGraphPointDistance(graph: Graph, p1: Point, p2: Point) -> float:
         graphWidthScalar = 1 / graph.attrs["width"]
         graphHeightScalar = 1 / graph.attrs["height"]
 

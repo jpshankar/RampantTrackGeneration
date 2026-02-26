@@ -66,7 +66,12 @@ class Ops:
                 intersectionY = intersectingVertex0.y + (t * -y1dy2)
 
                 intersectionPoint = Point(x = intersectionX, y = intersectionY)
-                return EdgeIntersectionInfo(intersectionPoint = intersectionPoint, intersectedEdge = intersectedEdge)
+
+                # This is just two edges sharing a common point - don't return.
+                if intersectionPoint == intersectingVertex0 or intersectionPoint == intersectingVertex1:
+                    return None
+                else:
+                    return EdgeIntersectionInfo(intersectionPoint = intersectionPoint, intersectedEdge = intersectedEdge)
             else:
                 return None
         else:
@@ -86,3 +91,17 @@ class Ops:
         edgeIntersectionData.sort(key = lambda eii: GraphOps.scaledGraphPointDistance(graph = edgeGraph, p1 = intersectingVertex0, p2 = eii.intersectionPoint))
 
         return edgeIntersectionData
+    
+    @staticmethod
+    def edgesAreCollinear(edgeGraph: Graph, edge0: EdgeVertexInfo, edge1: EdgeVertexInfo) -> bool:
+        edge0Vertex0 = GraphOps.graphVertex(graph = edgeGraph, vertexId = edge0.vertex0Id)
+        edge0Vertex1 = GraphOps.graphVertex(graph = edgeGraph, vertexId = edge0.vertex1Id)
+
+        edge1Vertex0 = GraphOps.graphVertex(graph = edgeGraph, vertexId = edge1.vertex0Id)
+        edge1Vertex1 = GraphOps.graphVertex(graph = edgeGraph, vertexId = edge1.vertex1Id)
+
+        if edge0Vertex0 and edge0Vertex1 and edge1Vertex0 and edge1Vertex1:
+            # Two edges are collinear if they have the same slope.
+            return Ops._edgeSlope(edgePoint1 = edge0Vertex0, edgePoint2 = edge0Vertex1) == Ops._edgeSlope(edgePoint1 = edge1Vertex0, edgePoint2 = edge1Vertex1)
+        else:
+            return False
