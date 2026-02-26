@@ -49,6 +49,9 @@ It uses [Voronout](https://pypi.org/project/Voronout/) to generate the diagram a
 * reconnecting `diagramEdgePercentageToProcess * 100`% of the smallest edges in the diagram
 * removing all intersection edges created by reconnection that can be safely removed
 * removing all " lonely " edges (ones where one vertex is only connected to that edge) with length <= `lonelyConnectionMinLengthQuantile * 100`% of all edge lengths
+* adjusting all edges with length < `minEdgeAdjustLength`, either..
+  * .. combining them with another collinear edge such that the combination would make the longest edge possible 
+  * .. deleting the edge, reconnecting all edges involving the vertex with the fewest neighbors to the other vertex
 * placing `Stops` on the remaining edges
   * to avoid the awkwardness of placing on " too small edges ", we only place on edges whose length is greater than `(connectionLengthVertexPadding + connectionLengthNodeBuffer) * 100`% of edges
   * to space `Stops` organically on an edge, we place them at least `connectionLengthVertexPadding * 100`% of the edge length away from either of points - and make the distance between each `Stop` at least `connectionLengthNodeBuffer * 100`% of the edge length
