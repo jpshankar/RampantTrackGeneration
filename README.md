@@ -9,8 +9,7 @@ The logic is invoked by calling
 def generateTrack(
     diagramWidth: int,
     diagramHeight: int,
-    numWalkersOnTrack: int,
-    numDestinationsOnTrack: int,
+    numDiagramRegions: int,
     diagramEdgePercentageToProcess: float, 
     newConnectionAngleMinQuantile: float, 
     lonelyConnectionMinLengthQuantile: float, 
@@ -43,8 +42,7 @@ It uses [Voronout](https://pypi.org/project/Voronout/) to generate the diagram a
 
 .. doing the following:
 
-* calculating `numRegions` (`numWalkersOnTrack * numDestinationsOnTrack * 2`)
-* generating #`numRegions` Voronoi diagram sites (`0 <= x <= diagramWidth`, `0 <= y <= diagramHeight`)
+* generating #`numDiagramRegions` Voronoi diagram sites (`0 <= x <= diagramWidth`, `0 <= y <= diagramHeight`)
 * generating the Voronoi diagram
 * using `newConnectionAngleMinQuantile` to calculate `initialDiagramMinAcceptableAngle`, the minimum angle any new reconnection should make with any of the edges at either of its vertices
   * rejecting any reconnection that does not satisfy that constraint minimizes the probability of getting `Track` edges that make awkwardly small angles with other edges

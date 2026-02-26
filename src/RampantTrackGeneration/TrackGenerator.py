@@ -262,17 +262,14 @@ class TrackGenerator:
     def generateTrack(
         diagramWidth: int,
         diagramHeight: int,
-        numWalkersOnTrack: int,
-        numDestinationsOnTrack: int,
+        numDiagramRegions: int,
         diagramEdgePercentageToProcess: float, 
         newConnectionAngleMinQuantile: float, 
         lonelyConnectionMinLengthQuantile: float, 
         connectionLengthVertexPadding: float, 
         connectionLengthNodeBuffer: float
     ) -> Track:
-        numVoronoiDiagramRegions = (numWalkersOnTrack * numDestinationsOnTrack) * 2
-
-        diagramRegionSites = tuple((Point(x = random.random(), y = random.random()) for _ in range(numVoronoiDiagramRegions)))
+        diagramRegionSites = tuple((Point(x = random.random(), y = random.random()) for _ in range(numDiagramRegions)))
 
         voronoiDiagram = VoronoiDiagram(basePoints = diagramRegionSites, planeWidth = diagramWidth, planeHeight = diagramHeight)
 
