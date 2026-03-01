@@ -14,7 +14,8 @@ def generateTrack(
     newConnectionAngleMinQuantile: float, 
     lonelyConnectionMinLengthQuantile: float, 
     connectionLengthVertexPadding: float, 
-    connectionLengthNodeBuffer: float
+    connectionLengthNodeBuffer: float,
+    destinationDistanceUpperQuantile: float
 ) -> Track:
 ```
 
@@ -28,6 +29,8 @@ class Track:
     nodes: dict[uuid4, Point]
     stops: dict[uuid4, tuple[Point]]
     edges: dict[uuid4, EdgeVertexInfo]
+    startNode: uuid4
+    destinationNode: uuid4
 ```
 
 describes a set of `edges`, each a connection between two `Point`s. `nodes` are the `Point`s - `stops` are intervals on each edge, a gameplay mechanic that'll be elaborated later.
@@ -37,6 +40,8 @@ describes a set of `edges`, each a connection between two `Point`s. `nodes` are 
 It preserves the organic appeal of the diagram's shape - connectivity of varying lengths between unevenly spaced points - and goes on to enhance that by removing a subset of the smallest edges, replacing them with longer " reconnections ". The reconnections' intersections with other edges are calculated. Intersections that could be removed without newly isolating either of the involved `Point`s are removed - this, and further trimming, increase the variance of the resulting Track's shape and its appeal in both visual and gameplay terms.
 
 It uses [Voronout](https://pypi.org/project/Voronout/) to generate the diagram and [networkX](https://pypi.org/project/networkx/) to model the diagram's transformation into a `Track`.
+
+`startNode` and `destinationNode` reflect the gameplay - where the Walker the player is responsible for starts from, and where it must end up for the player to win.
 
 ## RampantTrackGeneration works by..
 
@@ -55,6 +60,8 @@ It uses [Voronout](https://pypi.org/project/Voronout/) to generate the diagram a
 * placing `Stops` on the remaining edges
   * to avoid the awkwardness of placing on " too small edges ", we only place on edges whose length is greater than `(connectionLengthVertexPadding + connectionLengthNodeBuffer) * 100`% of edges
   * to space `Stops` organically on an edge, we place them at least `connectionLengthVertexPadding * 100`% of the edge length away from either of points - and make the distance between each `Stop` at least `connectionLengthNodeBuffer * 100`% of the edge length
+* calculating `Track.startNode` and `Track.destinationNode`
+  * `Point.distance(<startNode>, <destinationNode>)` must be >= `destinationDistanceUpperQuantile * 100`% of the distances non-`startNode`s have to `startNode`
 
 The resulting enhancement can be seen in the below illustration of `Voronoi diagram` -> `Track`:
 

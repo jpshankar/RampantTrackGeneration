@@ -19,6 +19,18 @@ import random
 
 from uuid import uuid4
 
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class _NodeWithId:
+    node: Point
+    id: uuid4
+
+@dataclass(frozen=True)
+class _NodeWithDistanceToStart:
+    nodeId: uuid4
+    distance: float
+
 class TrackGenerator:
     @staticmethod
     def _edgeAngleViability(angle: float, minAcceptableAngle: float) -> bool:
@@ -150,9 +162,9 @@ class TrackGenerator:
             if collinearEdge in intersectionEdges:
                 intersectionEdges.remove(collinearEdge)
 
-            collinearConnectionEdge = GraphEdge(edgeId = uuid4(), edgeVertices = collinearReconnection, edgeLength = collinearReconnectionLength)
-
-            GraphOps.addConnectionToGraph(graph = graph, connectionEdge = collinearConnectionEdge)
+            if GraphOps.graphVertex(graph = graph, vertexId = collinearReconnection.vertex0Id) and GraphOps.graphVertex(graph = graph, vertexId = collinearReconnection.vertex1Id):
+                collinearConnectionEdge = GraphEdge(edgeId = uuid4(), edgeVertices = collinearReconnection, edgeLength = collinearReconnectionLength)
+                GraphOps.addConnectionToGraph(graph = graph, connectionEdge = collinearConnectionEdge)
 
             return True
         else:
@@ -267,7 +279,8 @@ class TrackGenerator:
         newConnectionAngleMinQuantile: float, 
         lonelyConnectionMinLengthQuantile: float, 
         connectionLengthVertexPadding: float, 
-        connectionLengthNodeBuffer: float
+        connectionLengthNodeBuffer: float,
+        destinationDistanceUpperQuantile: float
     ) -> Track:
         diagramRegionSites = tuple((Point(x = random.random(), y = random.random()) for _ in range(numDiagramRegions)))
 
@@ -485,6 +498,18 @@ class TrackGenerator:
 
         nodes = { existingConnectionNode.nodeId: GraphOps.graphVertex(graph = finalizedExistingConnections, vertexId = existingConnectionNode.nodeId) for existingConnectionNode in finalizedExistingConnections.nodes()}
 
+        finalNodes = tuple((_NodeWithId(node = node, id = nodeId) for (nodeId, node) in nodes.items()))
+        startNode = random.choice(finalNodes)
+
+        otherNodes = tuple((otherNode for otherNode in finalNodes if otherNode != startNode))
+        otherNodesWithDistanceToStart = tuple((_NodeWithDistanceToStart(nodeId = otherNode.id, distance = Point.distance(p1 = startNode.node, p2 = otherNode.node)) for otherNode in otherNodes))
+
+        otherNodesStartDistances = tuple((otherNode.distance for otherNode in otherNodesWithDistanceToStart))
+        otherNodesUpperMinDistance = numpy.quantile(a = otherNodesStartDistances, q = destinationDistanceUpperQuantile)
+
+        possibleDestinationNodes = tuple((otherNode.nodeId for otherNode in otherNodesWithDistanceToStart if otherNode.distance >= otherNodesUpperMinDistance))
+        destinationNode = random.choice(possibleDestinationNodes)
+
         edges = { existingConnectionsEdge.edgeId: existingConnectionsEdge.edgeVertices for existingConnectionsEdge in finalizedExistingConnectionEdges }
 
-        return Track(nodes = nodes, stops = stops, edges = edges)
+        return Track(nodes = nodes, stops = stops, edges = edges, startNode = startNode.id, destinationNode = destinationNode)

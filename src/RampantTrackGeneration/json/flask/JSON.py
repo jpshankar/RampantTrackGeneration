@@ -19,7 +19,9 @@ class FlaskRampantTrackGenerationJSONProvider(DefaultJSONProvider):
             return {
                 'nodes': self._handlePointDict(obj.nodes),
                 'stops': stopObj,
-                'edges': edgesObj
+                'edges': edgesObj,
+                'startNode': str(obj.startNode),
+                'destinationNode': str(obj.destinationNode)
             }
         else:
             return super().dumps(obj, **kw)

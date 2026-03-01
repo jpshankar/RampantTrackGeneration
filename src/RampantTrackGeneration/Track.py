@@ -11,3 +11,5 @@ class Track:
     nodes: dict[uuid4, Point]
     stops: dict[uuid4, tuple[Point]]
     edges: dict[uuid4, EdgeVertexInfo]
+    startNode: uuid4
+    destinationNode: uuid4
