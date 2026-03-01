@@ -507,9 +507,12 @@ class TrackGenerator:
         otherNodesStartDistances = tuple((otherNode.distance for otherNode in otherNodesWithDistanceToStart))
         otherNodesUpperMinDistance = numpy.quantile(a = otherNodesStartDistances, q = destinationDistanceUpperQuantile)
 
-        possibleDestinationNodes = tuple((otherNode.nodeId for otherNode in otherNodesWithDistanceToStart if otherNode.distance >= otherNodesUpperMinDistance))
-        destinationNode = random.choice(possibleDestinationNodes)
+        possibleDestinationNodeIds = tuple((otherNode.nodeId for otherNode in otherNodesWithDistanceToStart if otherNode.distance >= otherNodesUpperMinDistance))
+        destinationNodeId = random.choice(possibleDestinationNodeIds)
+
+        destinationNode = nodes[destinationNodeId]
+        nodesDistanceToDestination = { finalNode.id: Point.distance(p1 = finalNode.node, p2 = destinationNode) for finalNode in finalNodes }
 
         edges = { existingConnectionsEdge.edgeId: existingConnectionsEdge.edgeVertices for existingConnectionsEdge in finalizedExistingConnectionEdges }
 
-        return Track(nodes = nodes, stops = stops, edges = edges, startNode = startNode.id, destinationNode = destinationNode)
+        return Track(nodes = nodes, stops = stops, edges = edges, startNodeId = startNode.id, destinationNodeId = destinationNodeId, nodesDistanceToDestination = nodesDistanceToDestination)

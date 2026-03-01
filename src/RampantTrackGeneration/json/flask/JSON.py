@@ -15,13 +15,16 @@ class FlaskRampantTrackGenerationJSONProvider(DefaultJSONProvider):
         if isinstance(obj, Track):
             stopObj = {str(stopEdgeId): self.loads(f'[{",".join((repr(lineStop) for lineStop in edgeStops))}]') for (stopEdgeId, edgeStops) in obj.stops.items()}
             edgesObj = {str(edgeId): self.loads(repr(edge)) for (edgeId, edge) in obj.edges.items()}
+
+            destinationNodeDistancesObj = { str(nodeId): distanceToDestination for (nodeId, distanceToDestination) in obj.nodesDistanceToDestination.items()}
             
             return {
                 'nodes': self._handlePointDict(obj.nodes),
                 'stops': stopObj,
                 'edges': edgesObj,
-                'startNode': str(obj.startNode),
-                'destinationNode': str(obj.destinationNode)
+                'startNodeId': str(obj.startNodeId),
+                'destinationNodeId': str(obj.destinationNodeId),
+                'nodesDistanceToDestination': destinationNodeDistancesObj
             }
         else:
             return super().dumps(obj, **kw)

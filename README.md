@@ -30,7 +30,8 @@ class Track:
     stops: dict[uuid4, tuple[Point]]
     edges: dict[uuid4, EdgeVertexInfo]
     startNode: uuid4
-    destinationNode: uuid4
+    destinationNode: uuid4,
+    nodesDistanceToDestination: dict[uuid4, float]
 ```
 
 describes a set of `edges`, each a connection between two `Point`s. `nodes` are the `Point`s - `stops` are intervals on each edge, a gameplay mechanic that'll be elaborated later.
@@ -42,6 +43,8 @@ It preserves the organic appeal of the diagram's shape - connectivity of varying
 It uses [Voronout](https://pypi.org/project/Voronout/) to generate the diagram and [networkX](https://pypi.org/project/networkx/) to model the diagram's transformation into a `Track`.
 
 `startNode` and `destinationNode` reflect the gameplay - where the Walker the player is responsible for starts from, and where it must end up for the player to win.
+
+`nodesDistanceToDestination` maps nodes to how far they are from `destinationNode`, computing information used in determining Walker navigation across nodes.
 
 ## RampantTrackGeneration works by..
 
@@ -62,6 +65,7 @@ It uses [Voronout](https://pypi.org/project/Voronout/) to generate the diagram a
   * to space `Stops` organically on an edge, we place them at least `connectionLengthVertexPadding * 100`% of the edge length away from either of points - and make the distance between each `Stop` at least `connectionLengthNodeBuffer * 100`% of the edge length
 * calculating `Track.startNode` and `Track.destinationNode`
   * `Point.distance(<startNode>, <destinationNode>)` must be >= `destinationDistanceUpperQuantile * 100`% of the distances non-`startNode`s have to `startNode`
+* calculating `Track.nodesDistanceToDestination`
 
 The resulting enhancement can be seen in the below illustration of `Voronoi diagram` -> `Track`:
 
