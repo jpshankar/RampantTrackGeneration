@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from .data import NodeInfo
+
 from .edges.data import EdgeVertexInfo
 
 from uuid import uuid4
@@ -13,6 +15,6 @@ class Track:
     edges: dict[uuid4, EdgeVertexInfo]
 
     startNodeId: uuid4
-
     destinationNodeId: uuid4
-    nodesDistanceToDestination: dict[uuid4, float]
+    
+    nodeInfo: dict[uuid4, NodeInfo]

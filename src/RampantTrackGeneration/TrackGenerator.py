@@ -1,3 +1,5 @@
+from .data import NodeInfo
+
 from .edges.data import EdgesMakingAngle, EdgeVertexInfo
 
 from .edges.Ops import Ops as EdgesOps
@@ -511,8 +513,8 @@ class TrackGenerator:
         destinationNodeId = random.choice(possibleDestinationNodeIds)
 
         destinationNode = nodes[destinationNodeId]
-        nodesDistanceToDestination = { finalNode.id: Point.distance(p1 = finalNode.node, p2 = destinationNode) for finalNode in finalNodes }
-
+        nodeInfo = { finalNode.id: NodeInfo(distanceToDestination = Point.distance(p1 = finalNode.node, p2 = destinationNode), numNeighbors = len(GraphOps.graphVertexNeighbors(graph = finalizedExistingConnections, vertexId = finalNode.id))) for finalNode in finalNodes }
+        
         edges = { existingConnectionsEdge.edgeId: existingConnectionsEdge.edgeVertices for existingConnectionsEdge in finalizedExistingConnectionEdges }
 
-        return Track(nodes = nodes, stops = stops, edges = edges, startNodeId = startNode.id, destinationNodeId = destinationNodeId, nodesDistanceToDestination = nodesDistanceToDestination)
+        return Track(nodes = nodes, stops = stops, edges = edges, startNodeId = startNode.id, destinationNodeId = destinationNodeId, nodeInfo = nodeInfo)
