@@ -41,7 +41,7 @@ class TrackGenerator:
     
     @staticmethod
     def _calculateEdgeAnglesWithGraphVertexEdges(graph: Graph, edge: EdgeVertexInfo, vertexId: uuid4) -> dict[EdgesMakingAngle, float]:
-        vertexNeighborIds = GraphOps.graphVertexNeighbors(graph = graph, vertexId = vertexId)
+        vertexNeighborIds = GraphOps.graphVertexNeighborIds(graph = graph, vertexId = vertexId)
         vertexEdgesMakingAngles = []
 
         for vertexNeighborId in vertexNeighborIds:
@@ -68,7 +68,7 @@ class TrackGenerator:
     
     @staticmethod
     def _updateVertexPotentialConnections(existingConnectionsGraph: Graph, potentialConnectionsGraph: Graph, vertexToUpdateId: uuid4): 
-        verticesConnectedTo = GraphOps.graphVertexNeighbors(graph = existingConnectionsGraph, vertexId = vertexToUpdateId)
+        verticesConnectedTo = GraphOps.graphVertexNeighborIds(graph = existingConnectionsGraph, vertexId = vertexToUpdateId)
         
         potentialConnectingVertexNodeIds = tuple((maybePotentialConnectingVertex.nodeId for maybePotentialConnectingVertex in existingConnectionsGraph.nodes()))
         potentialConnectingVertexIds = tuple((potentialConnectingVertexId for potentialConnectingVertexId in potentialConnectingVertexNodeIds if potentialConnectingVertexId not in verticesConnectedTo and potentialConnectingVertexId != vertexToUpdateId))
@@ -210,28 +210,28 @@ class TrackGenerator:
         return True
 
     @staticmethod
-    def _adjustTooSmallEdges(existingConnectionsGraph: Graph, edgesToAdjust: tuple[GraphEdge], intersectionEdges: tuple[EdgeVertexInfo]):
+    def _adjustTooSmallEdges(graph: Graph, edgesToAdjust: tuple[GraphEdge], intersectionEdges: tuple[EdgeVertexInfo]):
         for edgeToAdjust in edgesToAdjust:
             edgeToAdjustVertices = edgeToAdjust.edgeVertices
 
             edgeToAdjustVertex0Id = edgeToAdjustVertices.vertex0Id
             edgeToAdjustVertex1Id = edgeToAdjustVertices.vertex1Id
 
-            edgeToAdjustVertex0Neighbors = GraphOps.graphVertexNeighbors(graph = existingConnectionsGraph, vertexId = edgeToAdjustVertex0Id)
+            edgeToAdjustVertex0Neighbors = GraphOps.graphVertexNeighborIds(graph = graph, vertexId = edgeToAdjustVertex0Id)
             vertex0NeighborConnections = tuple((EdgeVertexInfo(vertex0Id = edgeToAdjustVertex0Id, vertex1Id = vertex0NeighborId) for vertex0NeighborId in edgeToAdjustVertex0Neighbors if vertex0NeighborId != edgeToAdjustVertex1Id))
 
-            edgeToAdjustVertex1Neighbors = GraphOps.graphVertexNeighbors(graph = existingConnectionsGraph, vertexId = edgeToAdjustVertex1Id)
+            edgeToAdjustVertex1Neighbors = GraphOps.graphVertexNeighborIds(graph = graph, vertexId = edgeToAdjustVertex1Id)
             vertex1NeighborConnections = tuple((EdgeVertexInfo(vertex0Id = edgeToAdjustVertex1Id, vertex1Id = vertex1NeighborId) for vertex1NeighborId in edgeToAdjustVertex1Neighbors if vertex1NeighborId != edgeToAdjustVertex0Id))
 
             vertexNeighborConnections = vertex0NeighborConnections + vertex1NeighborConnections
             
-            collinearEdges = tuple((vertexNeighborConnection for vertexNeighborConnection in vertexNeighborConnections if EdgesOps.edgesAreCollinear(edgeGraph = existingConnectionsGraph, edge0 = edgeToAdjustVertices, edge1 = vertexNeighborConnection)))
+            collinearEdges = tuple((vertexNeighborConnection for vertexNeighborConnection in vertexNeighborConnections if EdgesOps.edgesAreCollinear(edgeGraph = graph, edge0 = edgeToAdjustVertices, edge1 = vertexNeighborConnection)))
 
             # We either adjust via combining it with the largest collinear edge..
-            adjustedViaCollinearity = TrackGenerator._doLargestCollinearReconnection(graph = existingConnectionsGraph, edgeToCombine = edgeToAdjustVertices, collinearEdges = collinearEdges, intersectionEdges = intersectionEdges)
+            adjustedViaCollinearity = TrackGenerator._doLargestCollinearReconnection(graph = graph, edgeToCombine = edgeToAdjustVertices, collinearEdges = collinearEdges, intersectionEdges = intersectionEdges)
             if not adjustedViaCollinearity:
                 # .. or by deleting the edge and doing the easiest reconnection.
-                TrackGenerator._doEasiestReconnection(graph = existingConnectionsGraph, edgeToReconnect = edgeToAdjustVertices, edgeVertex0Neighbors = vertex0NeighborConnections, edgeVertex1Neighbors = vertex1NeighborConnections, intersectionEdges = intersectionEdges)
+                TrackGenerator._doEasiestReconnection(graph = graph, edgeToReconnect = edgeToAdjustVertices, edgeVertex0Neighbors = vertex0NeighborConnections, edgeVertex1Neighbors = vertex1NeighborConnections, intersectionEdges = intersectionEdges)
 
     # https://math.stackexchange.com/questions/134112/find-a-point-on-a-line-segment-located-at-a-distance-d-from-one-endpoint
     @staticmethod
@@ -271,11 +271,173 @@ class TrackGenerator:
             return tuple(connectionNodes)
         else:
             return tuple()
+        
+    # Handles observed issues with some trackNodes exceeding region bounds by bounding them to mins/maxes.
+    def _boundTrackNodesWithinRegion(graph: Graph, regionWidth: float, regionWidthOffset: float, regionHeight: float, regionHeightOffset: float, doubledNodeRadius: float):
+        minNodeX = regionWidthOffset + doubledNodeRadius
+        minNodeY = regionHeightOffset + doubledNodeRadius
+
+        maxNodeX = regionWidth + regionWidthOffset - doubledNodeRadius
+        maxNodeY = regionHeight + regionHeightOffset - doubledNodeRadius
+
+        for graphNode in graph.nodes():
+            nodeVertexId = graphNode.nodeId
+            nodeVertex = GraphOps.graphVertex(graph = graph, vertexId = nodeVertexId)
+
+            maybeBoundX = nodeVertex.x
+            maybeBoundY = nodeVertex.y
+
+            if maybeBoundX > maxNodeX:
+                maybeBoundX = maxNodeX
+            elif maybeBoundX < minNodeX:
+                maybeBoundX = minNodeX
+
+            xWasBounded = maybeBoundX != nodeVertex.x
+
+            if maybeBoundY > maxNodeY:
+                maybeBoundY = maxNodeY
+            elif maybeBoundY < minNodeY:
+                maybeBoundY = minNodeY
+
+            yWasBounded = maybeBoundY != nodeVertex.y
+
+            if xWasBounded or yWasBounded:
+                boundedVertex = Point(x = maybeBoundX, y = maybeBoundY)
+                boundedVertexNodeId = uuid4()
+
+                boundedVertexNode = GraphNode(nodeId = boundedVertexNodeId, nodePoint = boundedVertex)
+                GraphOps.addVertexToGraph(graph = graph, vertexNode = boundedVertexNode)
+
+                GraphOps.reconnectOldVertexNodeEdgesToNew(graph = graph, newVertexNode = boundedVertexNode, oldVertexId = nodeVertexId)
+        
+    def _offsetPoint(originalPoint: Point, widthOffset: float, heightOffset: float) -> Point:
+        return Point(x = originalPoint.x + widthOffset, y = originalPoint.y + heightOffset)
+    
+    def _pointWithinEdgeRange(graph: Graph, point: Point, edge: GraphEdge) -> bool:
+        edgeVertices = edge.edgeVertices
+
+        point0 = GraphOps.vertexIdToGraphNode(graph = graph, vertexId = edgeVertices.vertex0Id).nodePoint
+        point1 = GraphOps.vertexIdToGraphNode(graph = graph, vertexId = edgeVertices.vertex1Id).nodePoint
+
+        # Workaround for zero-length edges until I can trim those out.
+        if point0 != point and point1 != point and (point0 != point1):
+            minX = min(point0.x, point1.x)
+            maxX = max(point0.x, point1.x)
+
+            minY = min(point0.y, point1.y)
+            maxY = max(point0.y, point1.y)
+
+            return minX <= point.x <= maxX or minY <= point.y <= maxY
+        else:
+            return False
+        
+    def _pointWithinOtherPointRange(point: Point, otherPoint: Point, minDistanceBetweenPoints: float) -> bool:
+        return abs(point.x - otherPoint.x) < minDistanceBetweenPoints and abs(point.y - otherPoint.y) < minDistanceBetweenPoints
+        
+    # https://en.wikipedia.org/wiki/Distance_from_a_point_to_a_line#Line_defined_by_two_points
+    @staticmethod
+    def _pointDistanceToLine(graph: Graph, point: Point, line: GraphEdge) -> float:
+        lineVertices = line.edgeVertices
+
+        linePoint0 = GraphOps.vertexIdToGraphNode(graph = graph, vertexId = lineVertices.vertex0Id).nodePoint
+        linePoint1 = GraphOps.vertexIdToGraphNode(graph = graph, vertexId = lineVertices.vertex1Id).nodePoint
+
+        secondFirstDx = linePoint1.x - linePoint0.x
+        secondFirstDy = linePoint1.y - linePoint0.y
+
+        x2y1 = linePoint1.x * linePoint0.y
+        y2x1 = linePoint1.y * linePoint0.x
+
+        distanceNumerator = abs((secondFirstDy * point.x) - (secondFirstDx * point.y) + x2y1 - y2x1)
+        distanceDenominator = Point.distance(p1 = linePoint0, p2 = linePoint1)
                 
+        return distanceNumerator / distanceDenominator
+    
+    # Adjusts nodes too close to other lines/nodes.
+    def _adjustTooCloseNodes(graph: Graph, doubledNodeRadius: float, minEdgeLength: float):
+        for graphNode in graph.nodes():
+            nodeId = graphNode.nodeId
+            nodePoint = graphNode.nodePoint
+
+            # Finds the lines too close (distance < doubledNodeRadius) to graphNode..
+            maybeTooCloseEdges = tuple((maybeTooCloseEdge for maybeTooCloseEdge in graph.edges() if TrackGenerator._pointWithinEdgeRange(graph = graph, point = nodePoint, edge = maybeTooCloseEdge)))
+            definitelyTooCloseEdges = tuple((definitelyTooCloseEdge for definitelyTooCloseEdge in maybeTooCloseEdges if TrackGenerator._pointDistanceToLine(graph = graph, point = nodePoint, line = definitelyTooCloseEdge) < doubledNodeRadius))
+
+            nodeNeighborIds = GraphOps.graphVertexNeighborIds(graph = graph, vertexId = nodeId)
+            nodeNeighborEdges = tuple((EdgeVertexInfo(vertex0Id = nodeNeighborId, vertex1Id = nodeId) for nodeNeighborId in nodeNeighborIds))
+
+            # .. and tries to extend them to intersect.
+            for definitelyTooCloseEdge in definitelyTooCloseEdges:
+                edgeIntersections = EdgesOps.calculateEdgesIntersectionInfo(edgeGraph = graph, intersectingEdge = definitelyTooCloseEdge.edgeVertices, otherEdges = nodeNeighborEdges)
+
+                for edgeIntersection in edgeIntersections:
+                    edgeIntersectionPoint = edgeIntersection.intersectionPoint
+                    edgeIntersectedVertices = edgeIntersection.intersectedEdge
+
+                    edgeIntersectionPointId = uuid4()
+                    edgeIntersectionNode = GraphNode(nodeId = edgeIntersectionPointId, nodePoint = edgeIntersectionPoint)
+
+                    edgeIntersectedVertex0Id = edgeIntersectedVertices.vertex0Id
+                    edgeIntersectedVertex0 = GraphOps.vertexIdToGraphNode(graph = graph, vertexId = edgeIntersectedVertex0Id)
+
+                    edgeIntersectedVertex1Id = edgeIntersectedVertices.vertex1Id
+                    edgeIntersectedVertex1 = GraphOps.vertexIdToGraphNode(graph = graph, vertexId = edgeIntersectedVertex1Id)
+
+                    intersection0EdgeLength = GraphOps.scaledGraphPointDistance(graph = graph, p1 = edgeIntersectedVertex0.nodePoint, p2 = edgeIntersectionPoint)
+                    canAddIntersection0 = intersection0EdgeLength >= minEdgeLength
+
+                    intersection1EdgeLength = GraphOps.scaledGraphPointDistance(graph = graph, p1 = edgeIntersectionPoint, p2 = edgeIntersectedVertex1.nodePoint)
+                    canAddIntersection1 = intersection1EdgeLength >= minEdgeLength
+
+                    # Don't add an intersection line if length < minEdgeLength. (Any disconnections created by this will, for now, be handled by subsequent " take the largest subset " logic.)
+                    if canAddIntersection0:
+                        GraphOps.addVertexToGraph(graph = graph, vertexNode = edgeIntersectionNode)
+                        
+                        intersection0Vertices = EdgeVertexInfo(vertex0Id = edgeIntersectedVertex0Id, vertex1Id = edgeIntersectionPointId)
+                        intersection0Edge = GraphEdge(edgeId = uuid4(), edgeVertices = intersection0Vertices, edgeLength = intersection0EdgeLength)
+
+                        GraphOps.addConnectionToGraph(graph = graph, connectionEdge = intersection0Edge)
+
+                    intersection1EdgeLength = GraphOps.scaledGraphPointDistance(graph = graph, p1 = edgeIntersectionPoint, p2 = edgeIntersectedVertex1.nodePoint)
+                    canAddIntersection1 = intersection1EdgeLength >= minEdgeLength
+
+                    if canAddIntersection1:
+                        if not GraphOps.vertexIdToGraphNode(graph = graph, vertexId = edgeIntersectionPointId):
+                            GraphOps.addVertexToGraph(graph = graph, vertexNode = edgeIntersectionNode)
+
+                        intersection1Vertices = EdgeVertexInfo(vertex0Id = edgeIntersectionPointId, vertex1Id = edgeIntersectedVertex1Id)
+                        intersection1Edge = GraphEdge(edgeId = uuid4(), edgeVertices = intersection1Vertices, edgeLength = intersection1EdgeLength)
+
+                        GraphOps.addConnectionToGraph(graph = graph, connectionEdge = intersection1Edge)
+
+                    if canAddIntersection0 or canAddIntersection1:
+                        GraphOps.removeEdgeAndCleanUpNodes(graph = graph, existingEdge = edgeIntersectedVertices)
+
+            # Finds the nodes so close to graphNode that they would seem to overlap..
+            tooCloseNodes = tuple((maybeTooCloseNode for maybeTooCloseNode in graph.nodes() if maybeTooCloseNode != graphNode and TrackGenerator._pointWithinOtherPointRange(point = nodePoint, otherPoint = maybeTooCloseNode.nodePoint, minDistanceBetweenPoints = doubledNodeRadius * 1.5)))
+            
+            # .. and tries to handle each of them by reconnecting one node to the other's neighbors (graphNode -> tooCloseNode or tooCloseNode -> graphNode).
+            for tooCloseNode in tooCloseNodes:
+                tooCloseNodeId = tooCloseNode.nodeId
+                
+                tooCloseNodeNeighbors = GraphOps.graphVertexNeighborIds(graph = graph, vertexId = tooCloseNodeId)
+                nodeNeighbors = GraphOps.graphVertexNeighborIds(graph = graph, vertexId = nodeId)
+
+                # Pick the one that would necessitate less reconnections.
+                tooCloseShouldBeDisconnected = len(tooCloseNodeNeighbors) < len(nodeNeighbors)
+
+                nodeToDisconnectId = tooCloseNodeId if tooCloseShouldBeDisconnected else nodeId
+                nodeToConnectTo = graphNode if tooCloseShouldBeDisconnected else tooCloseNode
+
+                GraphOps.reconnectOldVertexNodeEdgesToNew(graph = graph, newVertexNode = nodeToConnectTo, oldVertexId = nodeToDisconnectId)
+
     @staticmethod
     def generateTrack(
         diagramWidth: int,
+        diagramWidthOffset: float,
         diagramHeight: int,
+        diagramHeightOffset: float,
+        diagramNodeRadius: float,
         numDiagramRegions: int,
         diagramEdgePercentageToProcess: float, 
         newConnectionAngleMinQuantile: float, 
@@ -297,7 +459,9 @@ class TrackGenerator:
             if edgeId not in voronoiDiagramEdgesToProcess:
                 voronoiDiagramEdgesToProcess[edgeId] = edge
 
-        voronoiVertices = voronoiDiagram.vertices
+        # Offset the diagram's vertices for frontend display.
+        doubledRadius = diagramNodeRadius * 2
+        voronoiVertices = {vertexKey: TrackGenerator._offsetPoint(originalPoint = vertex, widthOffset = diagramWidthOffset + doubledRadius, heightOffset = diagramHeightOffset + doubledRadius) for (vertexKey, vertex) in voronoiDiagram.vertices.items()}
 
         # existingConnections models the current state of the diagram -> Track transformation.
         existingConnections = Graph(attrs={"width": diagramWidth, "height": diagramHeight})
@@ -479,10 +643,13 @@ class TrackGenerator:
         minEdgeStopLength = numpy.quantile(a = edgeLengths, q = minEdgeStopLengthQuantile)
         
         # minEdgeAdjustLength determined via trial-and-error - what value prunes " too-small " edges without sacrificing visual variety?
-        minEdgeAdjustLength = minEdgeStopLength / 8
+        minEdgeAdjustLength = minEdgeStopLength / 6
         edgesToAdjust = tuple((existingConnectionEdge for existingConnectionEdge in existingConnectionEdges if existingConnectionEdge.edgeLength < minEdgeAdjustLength))
 
-        TrackGenerator._adjustTooSmallEdges(existingConnectionsGraph = existingConnections, edgesToAdjust = edgesToAdjust, intersectionEdges = intersectionEdges)
+        TrackGenerator._adjustTooSmallEdges(graph = existingConnections, edgesToAdjust = edgesToAdjust, intersectionEdges = intersectionEdges)
+        TrackGenerator._adjustTooCloseNodes(graph = existingConnections, doubledNodeRadius = doubledRadius, minEdgeLength = minEdgeAdjustLength)
+        
+        TrackGenerator._boundTrackNodesWithinRegion(graph = existingConnections, regionWidth = diagramWidth, regionWidthOffset = diagramWidthOffset, regionHeight = diagramHeight, regionHeightOffset = diagramHeightOffset, doubledNodeRadius = doubledRadius)
 
         existingConnectionComponents = connected_components(existingConnections)
         finalizedExistingConnections = existingConnections
@@ -513,7 +680,7 @@ class TrackGenerator:
         destinationNodeId = random.choice(possibleDestinationNodeIds)
 
         destinationNode = nodes[destinationNodeId]
-        nodeInfo = { finalNode.id: NodeInfo(distanceToDestination = Point.distance(p1 = finalNode.node, p2 = destinationNode), numNeighbors = len(GraphOps.graphVertexNeighbors(graph = finalizedExistingConnections, vertexId = finalNode.id))) for finalNode in finalNodes }
+        nodeInfo = { finalNode.id: NodeInfo(distanceToDestination = Point.distance(p1 = finalNode.node, p2 = destinationNode), numNeighbors = len(GraphOps.graphVertexNeighborIds(graph = finalizedExistingConnections, vertexId = finalNode.id))) for finalNode in finalNodes }
         
         edges = { existingConnectionsEdge.edgeId: existingConnectionsEdge.edgeVertices for existingConnectionsEdge in finalizedExistingConnectionEdges }
 

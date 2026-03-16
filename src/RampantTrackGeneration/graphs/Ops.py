@@ -43,15 +43,19 @@ class Ops:
                 return None
         else:
             return None
-    
+        
     @staticmethod
-    def graphVertexNeighbors(graph: Graph, vertexId: uuid4) -> tuple[uuid4]:
+    def _graphVertexNeighbors(graph: Graph, vertexId: uuid4) -> tuple[GraphNode]:
         vertexNodeInd = Ops.vertexIdToGraphNodeInd(graph = graph, vertexId = vertexId)
         if vertexNodeInd != None:
             vertexNeighborInds = graph.neighbors(node = vertexNodeInd)
-            return tuple((graph.get_node_data(node = vertexNeighborInd).nodeId for vertexNeighborInd in vertexNeighborInds))
+            return tuple((graph.get_node_data(node = vertexNeighborInd) for vertexNeighborInd in vertexNeighborInds))
         else:
             return tuple()
+    
+    @staticmethod
+    def graphVertexNeighborIds(graph: Graph, vertexId: uuid4) -> tuple[uuid4]:
+        return tuple((vertexNeighbor.nodeId for vertexNeighbor in Ops._graphVertexNeighbors(graph = graph, vertexId = vertexId)))
         
     @staticmethod
     def graphEdgeLength(graph: Graph, edge: EdgeVertexInfo) -> float:
@@ -73,6 +77,27 @@ class Ops:
     def addVertexToGraph(graph: Graph, vertexNode: GraphNode):
         if not Ops.vertexIdToGraphNode(graph = graph, vertexId = vertexNode.nodeId):
             graph.add_node(obj = vertexNode)
+
+    @staticmethod
+    def reconnectOldVertexNodeEdgesToNew(graph: Graph, newVertexNode: GraphNode, oldVertexId: uuid4):
+        newVertexNodeId = newVertexNode.nodeId
+        newVertexNodePoint = newVertexNode.nodePoint
+
+        vertexNeighbors = Ops._graphVertexNeighbors(graph = graph, vertexId = oldVertexId)
+
+        for vertexNeighbor in vertexNeighbors:
+            vertexNeighborNodeId = vertexNeighbor.nodeId
+
+            vertexNeighborEdgeDistance = Ops.scaledGraphPointDistance(graph = graph, p1 = newVertexNodePoint, p2 = vertexNeighbor.nodePoint)
+            vertexNeighborEdgeInfo = EdgeVertexInfo(vertex0Id = newVertexNodeId, vertex1Id = vertexNeighborNodeId)
+
+            newVertexNeighborEdge = GraphEdge(edgeId = uuid4(), edgeVertices = vertexNeighborEdgeInfo, edgeLength = vertexNeighborEdgeDistance)
+
+            Ops.addConnectionToGraph(graph = graph, connectionEdge = newVertexNeighborEdge)
+
+            oldVertexNeighborEdgeInfo = EdgeVertexInfo(vertex0Id = oldVertexId, vertex1Id = vertexNeighborNodeId)
+
+            Ops.removeEdgeAndCleanUpNodes(graph = graph, existingEdge = oldVertexNeighborEdgeInfo)
 
     @staticmethod
     def addConnectionToGraph(graph: Graph, connectionEdge: GraphEdge):

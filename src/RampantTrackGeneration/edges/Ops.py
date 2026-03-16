@@ -10,7 +10,7 @@ from voronout.Point import Point
 
 class Ops:
     @staticmethod
-    def _edgeSlope(edgePoint1: Point, edgePoint2: Point) -> float:
+    def edgeSlope(edgePoint1: Point, edgePoint2: Point) -> float:
         if edgePoint2.x == edgePoint1.x:
             return 0.0
         else:
@@ -19,8 +19,8 @@ class Ops:
     # https://www.mathstopia.net/coordinate-geometry/angle-two-lines
     @staticmethod
     def _angleBetweenEdges(edgeGraph: Graph, edge0: EdgeVertexInfo, edge1: EdgeVertexInfo) -> float:
-        edge0Slope = Ops._edgeSlope(edgePoint1 = GraphOps.graphVertex(graph = edgeGraph, vertexId = edge0.vertex0Id), edgePoint2 = GraphOps.graphVertex(graph = edgeGraph, vertexId = edge0.vertex1Id))
-        edge1Slope = Ops._edgeSlope(edgePoint1 = GraphOps.graphVertex(graph = edgeGraph, vertexId = edge1.vertex0Id), edgePoint2 = GraphOps.graphVertex(graph = edgeGraph, vertexId = edge1.vertex1Id))
+        edge0Slope = Ops.edgeSlope(edgePoint1 = GraphOps.graphVertex(graph = edgeGraph, vertexId = edge0.vertex0Id), edgePoint2 = GraphOps.graphVertex(graph = edgeGraph, vertexId = edge0.vertex1Id))
+        edge1Slope = Ops.edgeSlope(edgePoint1 = GraphOps.graphVertex(graph = edgeGraph, vertexId = edge1.vertex0Id), edgePoint2 = GraphOps.graphVertex(graph = edgeGraph, vertexId = edge1.vertex1Id))
 
         slopeNumerator = edge0Slope - edge1Slope
         slopeDenominator = 1 + (edge0Slope * edge1Slope)
@@ -102,6 +102,6 @@ class Ops:
 
         if edge0Vertex0 and edge0Vertex1 and edge1Vertex0 and edge1Vertex1:
             # Two edges are collinear if they have the same slope.
-            return Ops._edgeSlope(edgePoint1 = edge0Vertex0, edgePoint2 = edge0Vertex1) == Ops._edgeSlope(edgePoint1 = edge1Vertex0, edgePoint2 = edge1Vertex1)
+            return Ops.edgeSlope(edgePoint1 = edge0Vertex0, edgePoint2 = edge0Vertex1) == Ops.edgeSlope(edgePoint1 = edge1Vertex0, edgePoint2 = edge1Vertex1)
         else:
             return False
