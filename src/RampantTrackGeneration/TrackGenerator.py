@@ -23,6 +23,11 @@ from uuid import uuid4
 
 from dataclasses import dataclass
 
+from matplotlib import pyplot, patches
+from matplotlib.animation import FuncAnimation
+
+from functools import partial
+
 @dataclass(frozen=True)
 class _NodeWithId:
     node: Point
@@ -32,6 +37,14 @@ class _NodeWithId:
 class _NodeWithDistanceToStart:
     nodeId: uuid4
     distance: float
+
+@dataclass(frozen=True)
+class _GraphEdgeAsNodes:
+    node0: GraphNode
+    node1: GraphNode
+
+    def __eq__(self, other):
+        return (self.node0 == other.node0 and self.node1 == other.node1) or (self.node0 == other.node1 and self.node1 == other.node0)
 
 class TrackGenerator:
     @staticmethod
@@ -93,7 +106,7 @@ class TrackGenerator:
             GraphOps.addConnectionToGraph(graph = potentialConnectionsGraph, connectionEdge = potentialConnection)
 
     @staticmethod
-    def _pruneIntersectionEdgesFromExistingConnectionsGraph(existingConnectionsGraph: Graph, intersectionEdges: tuple[EdgeVertexInfo]):
+    def _pruneIntersectionEdgesFromExistingConnectionsGraph(existingConnectionsGraph: Graph, intersectionEdges: tuple[EdgeVertexInfo], trackEdgesSoFar: list[list[_GraphEdgeAsNodes]]):
         nodesThatWouldDisconnect = set((existingConnectionsGraph.get_node_data(node = articulationPointInd) for articulationPointInd in articulation_points(graph = existingConnectionsGraph)))
 
         safeToRemoveEdges = tuple((intersectionEdge for intersectionEdge in intersectionEdges if intersectionEdge.vertex0Id not in nodesThatWouldDisconnect and intersectionEdge.vertex1Id not in nodesThatWouldDisconnect))
@@ -119,8 +132,11 @@ class TrackGenerator:
                 GraphOps.cleanUpNodeIfPossible(graph = existingConnectionsGraph, nodeInd = safeToRemoveVertex0Ind)
                 GraphOps.cleanUpNodeIfPossible(graph = existingConnectionsGraph, nodeInd = safeToRemoveVertex1Ind)
 
+                print(f"update track edges from pruning intersection")
+                TrackGenerator._updateTrackEdgesSoFar(graph = existingConnectionsGraph, trackEdgesSoFar = trackEdgesSoFar)
+
     @staticmethod
-    def _handleLonelyExistingConnections(existingConnectionsGraph: Graph, lonelyConnectionMinLengthQuantile: float):
+    def _handleLonelyExistingConnections(existingConnectionsGraph: Graph, lonelyConnectionMinLengthQuantile: float, trackEdgesSoFar: list[list[_GraphEdgeAsNodes]]):
         existingConnectionEdgeLengths = tuple((existingConnectionEdge.edgeLength for existingConnectionEdge in existingConnectionsGraph.edges()))
         existingConnectionEdgeMinQuantile = numpy.quantile(a = existingConnectionEdgeLengths, q = lonelyConnectionMinLengthQuantile)
 
@@ -140,6 +156,9 @@ class TrackGenerator:
 
             if not len(zeroNeighbors) > 1 or not len(oneNeighbors) > 1:
                 GraphOps.removeEdgeAndCleanUpNodes(graph = existingConnectionsGraph, existingEdge = existingConnectionEdgeInfo)
+
+                print("update track edges from pruning connection")
+                TrackGenerator._updateTrackEdgesSoFar(graph = existingConnectionsGraph, trackEdgesSoFar = trackEdgesSoFar)
 
     @staticmethod
     def _doLargestCollinearReconnection(graph: Graph, edgeToCombine: EdgeVertexInfo, collinearEdges: tuple[EdgeVertexInfo], intersectionEdges: tuple[EdgeVertexInfo]) -> bool:
@@ -210,7 +229,7 @@ class TrackGenerator:
         return True
 
     @staticmethod
-    def _adjustTooSmallEdges(graph: Graph, edgesToAdjust: tuple[GraphEdge], intersectionEdges: tuple[EdgeVertexInfo]):
+    def _adjustTooSmallEdges(graph: Graph, edgesToAdjust: tuple[GraphEdge], intersectionEdges: tuple[EdgeVertexInfo], trackEdgesSoFar: list[list[_GraphEdgeAsNodes]]):
         for edgeToAdjust in edgesToAdjust:
             edgeToAdjustVertices = edgeToAdjust.edgeVertices
 
@@ -232,6 +251,9 @@ class TrackGenerator:
             if not adjustedViaCollinearity:
                 # .. or by deleting the edge and doing the easiest reconnection.
                 TrackGenerator._doEasiestReconnection(graph = graph, edgeToReconnect = edgeToAdjustVertices, edgeVertex0Neighbors = vertex0NeighborConnections, edgeVertex1Neighbors = vertex1NeighborConnections, intersectionEdges = intersectionEdges)
+
+            print("update track edges from too small processing")
+            TrackGenerator._updateTrackEdgesSoFar(graph = graph, trackEdgesSoFar = trackEdgesSoFar)
 
     # https://math.stackexchange.com/questions/134112/find-a-point-on-a-line-segment-located-at-a-distance-d-from-one-endpoint
     @staticmethod
@@ -273,7 +295,7 @@ class TrackGenerator:
             return tuple()
         
     # Handles observed issues with some trackNodes exceeding region bounds by bounding them to mins/maxes.
-    def _boundTrackNodesWithinRegion(graph: Graph, regionWidth: float, regionWidthOffset: float, regionHeight: float, regionHeightOffset: float, doubledNodeRadius: float):
+    def _boundTrackNodesWithinRegion(graph: Graph, regionWidth: float, regionWidthOffset: float, regionHeight: float, regionHeightOffset: float, doubledNodeRadius: float, trackEdgesSoFar: list[list[_GraphEdgeAsNodes]]):
         minNodeX = regionWidthOffset + doubledNodeRadius
         minNodeY = regionHeightOffset + doubledNodeRadius
 
@@ -309,6 +331,9 @@ class TrackGenerator:
                 GraphOps.addVertexToGraph(graph = graph, vertexNode = boundedVertexNode)
 
                 GraphOps.reconnectOldVertexNodeEdgesToNew(graph = graph, newVertexNode = boundedVertexNode, oldVertexId = nodeVertexId)
+
+                print("update track edges from bounding")
+                TrackGenerator._updateTrackEdgesSoFar(graph = graph, trackEdgesSoFar = trackEdgesSoFar)
         
     def _offsetPoint(originalPoint: Point, widthOffset: float, heightOffset: float) -> Point:
         return Point(x = originalPoint.x + widthOffset, y = originalPoint.y + heightOffset)
@@ -354,7 +379,7 @@ class TrackGenerator:
         return distanceNumerator / distanceDenominator
     
     # Adjusts nodes too close to other lines/nodes.
-    def _adjustTooCloseNodes(graph: Graph, doubledNodeRadius: float, minEdgeLength: float):
+    def _adjustTooCloseNodes(graph: Graph, doubledNodeRadius: float, minEdgeLength: float, trackEdgesSoFar: list[list[_GraphEdgeAsNodes]]):
         for graphNode in graph.nodes():
             nodeId = graphNode.nodeId
             nodePoint = graphNode.nodePoint
@@ -412,6 +437,8 @@ class TrackGenerator:
 
                     if canAddIntersection0 or canAddIntersection1:
                         GraphOps.removeEdgeAndCleanUpNodes(graph = graph, existingEdge = edgeIntersectedVertices)
+                        print("update track edges from too close to edge")
+                        TrackGenerator._updateTrackEdgesSoFar(graph = graph, trackEdgesSoFar = trackEdgesSoFar)
 
             # Finds the nodes so close to graphNode that they would seem to overlap..
             tooCloseNodes = tuple((maybeTooCloseNode for maybeTooCloseNode in graph.nodes() if maybeTooCloseNode != graphNode and TrackGenerator._pointWithinOtherPointRange(point = nodePoint, otherPoint = maybeTooCloseNode.nodePoint, minDistanceBetweenPoints = doubledNodeRadius * 1.5)))
@@ -430,6 +457,32 @@ class TrackGenerator:
                 nodeToConnectTo = graphNode if tooCloseShouldBeDisconnected else tooCloseNode
 
                 GraphOps.reconnectOldVertexNodeEdgesToNew(graph = graph, newVertexNode = nodeToConnectTo, oldVertexId = nodeToDisconnectId)
+
+                print("update track edges from too close to new")
+                TrackGenerator._updateTrackEdgesSoFar(graph = graph, trackEdgesSoFar = trackEdgesSoFar)
+
+    @staticmethod
+    def _updateTrackEdgesSoFar(graph: Graph, trackEdgesSoFar: list[list[_GraphEdgeAsNodes]]):
+        print(f"track edge update #{len(trackEdgesSoFar)}")
+        currentTrackEdges = []
+
+        for graphEdge in graph.edges():
+            graphEdgeVertices = graphEdge.edgeVertices
+
+            graphVertex0Id = graphEdgeVertices.vertex0Id
+            graphVertex1Id = graphEdgeVertices.vertex1Id
+
+            graphVertex0 = GraphOps.vertexIdToGraphNode(graph = graph, vertexId = graphEdgeVertices.vertex0Id)
+            graphVertex1 = GraphOps.vertexIdToGraphNode(graph = graph, vertexId = graphEdgeVertices.vertex1Id)
+
+            graphNode0 = GraphNode(nodeId = graphVertex0Id, nodePoint = graphVertex0.nodePoint)
+            graphNode1 = GraphNode(nodeId = graphVertex1Id, nodePoint = graphVertex1.nodePoint)
+
+            graphEdgeAsNodes = _GraphEdgeAsNodes(node0 = graphNode0, node1 = graphNode1)
+            if graphEdgeAsNodes not in currentTrackEdges:
+                currentTrackEdges.append(graphEdgeAsNodes)
+
+        trackEdgesSoFar.append(currentTrackEdges)
 
     @staticmethod
     def generateTrack(
@@ -518,6 +571,9 @@ class TrackGenerator:
         diagramEdgesToProcess = diagramEdgesSorted[:numDiagramEdgesToProcess]
 
         intersectionEdges = []
+        trackEdgesSoFar = []
+
+        TrackGenerator._updateTrackEdgesSoFar(graph = existingConnections, trackEdgesSoFar = trackEdgesSoFar)
 
         for diagramEdgeToProcess in diagramEdgesToProcess:
             existingConnectionsEdge = GraphOps.graphEdge(graph = existingConnections, edgeVertexInfo = diagramEdgeToProcess)
@@ -632,8 +688,11 @@ class TrackGenerator:
 
                         GraphOps.addConnectionToGraph(graph = existingConnections, connectionEdge = viableGraphEdge)
 
-        TrackGenerator._pruneIntersectionEdgesFromExistingConnectionsGraph(existingConnectionsGraph = existingConnections, intersectionEdges = intersectionEdges)
-        TrackGenerator._handleLonelyExistingConnections(existingConnectionsGraph = existingConnections, lonelyConnectionMinLengthQuantile = lonelyConnectionMinLengthQuantile)
+                print("update track edge sfrom loop")
+                TrackGenerator._updateTrackEdgesSoFar(graph = existingConnections, trackEdgesSoFar = trackEdgesSoFar)
+
+        TrackGenerator._pruneIntersectionEdgesFromExistingConnectionsGraph(existingConnectionsGraph = existingConnections, intersectionEdges = intersectionEdges, trackEdgesSoFar = trackEdgesSoFar)
+        TrackGenerator._handleLonelyExistingConnections(existingConnectionsGraph = existingConnections, lonelyConnectionMinLengthQuantile = lonelyConnectionMinLengthQuantile, trackEdgesSoFar = trackEdgesSoFar)
 
         existingConnectionEdges = existingConnections.edges()
 
@@ -646,10 +705,10 @@ class TrackGenerator:
         minEdgeAdjustLength = minEdgeStopLength / 6
         edgesToAdjust = tuple((existingConnectionEdge for existingConnectionEdge in existingConnectionEdges if existingConnectionEdge.edgeLength < minEdgeAdjustLength))
 
-        TrackGenerator._adjustTooSmallEdges(graph = existingConnections, edgesToAdjust = edgesToAdjust, intersectionEdges = intersectionEdges)
-        TrackGenerator._adjustTooCloseNodes(graph = existingConnections, doubledNodeRadius = doubledRadius, minEdgeLength = minEdgeAdjustLength)
+        TrackGenerator._adjustTooSmallEdges(graph = existingConnections, edgesToAdjust = edgesToAdjust, intersectionEdges = intersectionEdges, trackEdgesSoFar = trackEdgesSoFar)
+        TrackGenerator._adjustTooCloseNodes(graph = existingConnections, doubledNodeRadius = doubledRadius, minEdgeLength = minEdgeAdjustLength, trackEdgesSoFar = trackEdgesSoFar)
         
-        TrackGenerator._boundTrackNodesWithinRegion(graph = existingConnections, regionWidth = diagramWidth, regionWidthOffset = diagramWidthOffset, regionHeight = diagramHeight, regionHeightOffset = diagramHeightOffset, doubledNodeRadius = doubledRadius)
+        TrackGenerator._boundTrackNodesWithinRegion(graph = existingConnections, regionWidth = diagramWidth, regionWidthOffset = diagramWidthOffset, regionHeight = diagramHeight, regionHeightOffset = diagramHeightOffset, doubledNodeRadius = doubledRadius, trackEdgesSoFar = trackEdgesSoFar)
 
         existingConnectionComponents = connected_components(existingConnections)
         finalizedExistingConnections = existingConnections
@@ -662,6 +721,16 @@ class TrackGenerator:
             finalizedExistingConnections = existingConnections.subgraph(nodes = largestExistingConnectionComponent, preserve_attrs = True)
         
         finalizedExistingConnectionEdges = finalizedExistingConnections.edges()
+
+        trackStopsSoFar = [None for _ in range(len(trackEdgesSoFar))]
+        stops = {}
+
+        for existingConnectionEdge in finalizedExistingConnectionEdges:
+            stopsOnConnection = TrackGenerator._generateStopsOnConnection(connectionGraph = finalizedExistingConnections, connection = existingConnectionEdge.edgeVertices, connectionLengthVertexPadding = connectionLengthVertexPadding, connectionLengthNodeBuffer = connectionLengthNodeBuffer, minEdgeLengthForStopsGeneration = minEdgeStopLength)
+            stops[existingConnectionEdge.edgeId] = stopsOnConnection
+
+            trackStopsSoFar.append(stopsOnConnection)  
+            trackEdgesSoFar.append(None)
 
         stops = { existingConnectionEdge.edgeId: TrackGenerator._generateStopsOnConnection(connectionGraph = finalizedExistingConnections, connection = existingConnectionEdge.edgeVertices, connectionLengthVertexPadding = connectionLengthVertexPadding, connectionLengthNodeBuffer = connectionLengthNodeBuffer, minEdgeLengthForStopsGeneration = minEdgeStopLength) for existingConnectionEdge in finalizedExistingConnectionEdges}
 
@@ -683,5 +752,55 @@ class TrackGenerator:
         nodeInfo = { finalNode.id: NodeInfo(distanceToDestination = Point.distance(p1 = finalNode.node, p2 = destinationNode), numNeighbors = len(GraphOps.graphVertexNeighborIds(graph = finalizedExistingConnections, vertexId = finalNode.id))) for finalNode in finalNodes }
         
         edges = { existingConnectionsEdge.edgeId: existingConnectionsEdge.edgeVertices for existingConnectionsEdge in finalizedExistingConnectionEdges }
+
+        pyplot.figure("track")
+        (fig, ax) = pyplot.subplots()
+
+        startColor = "blue"
+        endColor = "red"
+        defaultColor = "grey"
+
+        def determineNodeColor(node: uuid4) -> str:
+            if node == startNode.id:
+                return startColor
+            elif node == destinationNodeId:
+                return endColor
+            else:
+                return defaultColor
+
+        def updateAnimation(frame, edges, stops):
+            edgesAt = edges[frame]
+            stopsAt = stops[frame]
+
+            if edgesAt:
+                print(f"num edgesAt {len(edgesAt)} at frame {frame}")
+                ax.clear()
+                for edgeAt in edgesAt:
+                    edgeNode0 = edgeAt.node0
+                    edgeNode1 = edgeAt.node1
+
+                    node0Id = edgeNode0.nodeId
+                    node1Id = edgeNode1.nodeId
+
+                    node0 = edgeNode0.nodePoint
+                    node1 = edgeNode1.nodePoint
+
+                    ax.plot([node0.x, node1.x], [node0.y, node1.y])
+
+                    node0Circle = patches.Circle(xy = (node0.x, node0.y), radius = 3, color = determineNodeColor(node0Id))
+                    ax.add_patch(node0Circle)
+
+                    node1Circle = patches.Circle(xy = (node1.x, node1.y), radius = 3, color = determineNodeColor(node1Id))
+                    ax.add_patch(node1Circle)
+            if stopsAt:
+                for stopAt in stopsAt:
+                    nodeCircle = patches.Circle(xy = (stopAt.x, stopAt.y), radius = 1.5, color = 'black')
+                    ax.add_patch(nodeCircle)
+
+        trackAnimation = FuncAnimation(fig = fig, func = partial(updateAnimation, edges = trackEdgesSoFar, stops = trackStopsSoFar), frames = len(trackEdgesSoFar), interval = 100)
+        
+        pyplot.axis("off")
+        pyplot.tight_layout(pad=0)
+        pyplot.show()
 
         return Track(nodes = nodes, stops = stops, edges = edges, startNodeId = startNode.id, destinationNodeId = destinationNodeId, nodeInfo = nodeInfo)
