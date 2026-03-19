@@ -803,4 +803,6 @@ class TrackGenerator:
         pyplot.tight_layout(pad=0)
         pyplot.show()
 
+        trackAnimation.save(filename = "screenshots_for_writeup/track_generation.gif", writer="pillow")
+
         return Track(nodes = nodes, stops = stops, edges = edges, startNodeId = startNode.id, destinationNodeId = destinationNodeId, nodeInfo = nodeInfo)
