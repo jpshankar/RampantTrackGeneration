@@ -119,4 +119,4 @@ class StopInfo:
 
 The resulting enhancement can be seen in the below illustration of `Voronoi diagram` -> `Track`:
 
-![GIF visualizing TrackGeneration.generateTrack()](track_generation_github.gif)
+![GIF visualizing TrackGeneration.generateTrack()](track_generation.gif)
