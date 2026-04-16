@@ -1,4 +1,4 @@
-from .data import NodeInfo
+from .data import EdgeInfo, NodeInfo, StopInfo
 
 from .edges.data import EdgesMakingAngle, EdgeVertexInfo
 
@@ -7,7 +7,7 @@ from .edges.Ops import Ops as EdgesOps
 from .graphs.data import GraphEdge, GraphNode
 from .graphs.Ops import Ops as GraphOps
 
-from math import floor
+from math import floor, atan2, degrees
 
 from rustworkx import articulation_points, connected_components, PyGraph as Graph
 
@@ -32,6 +32,13 @@ class _NodeWithId:
 class _NodeWithDistanceToStart:
     nodeId: uuid4
     distance: float
+
+@dataclass(frozen=True)
+class _EdgeStops:
+    edgeStopInfo: tuple[StopInfo]
+
+    edgeStopsFromVertex0: tuple[uuid4]
+    edgeStopsFromVertex1: tuple[uuid4]
 
 class TrackGenerator:
     @staticmethod
@@ -235,7 +242,7 @@ class TrackGenerator:
 
     # https://math.stackexchange.com/questions/134112/find-a-point-on-a-line-segment-located-at-a-distance-d-from-one-endpoint
     @staticmethod
-    def _generateStopsOnConnection(connectionGraph: Graph, connection: EdgeVertexInfo, connectionLengthVertexPadding: float, connectionLengthNodeBuffer: float, minEdgeLengthForStopsGeneration: float) -> tuple[Point]:
+    def _generateStopsOnConnection(connectionGraph: Graph, connection: EdgeVertexInfo, connectionLengthVertexPadding: float, connectionLengthNodeBuffer: float, minEdgeLengthForStopsGeneration: float, edgeFuelCost: float) -> _EdgeStops:
         connectionLength = GraphOps.graphEdgeLength(graph = connectionGraph, edge = connection)
         
         # Only generate stops if length is at least larger than ((connectionLengthVertexPadding + connectionLengthNodeBuffer) * 100) percent of edges.
@@ -254,7 +261,7 @@ class TrackGenerator:
             connectionXRangeMinInterval = (connectionLengthVertexPadding + connectionLengthNodeBuffer) * connectionLength
             connectionXRangeMaxInterval = connectionLength - connectionXRangeMinInterval
 
-            connectionNodes = []
+            connectionNodes = {}
 
             while connectionXRangeMinInterval < connectionXRangeMaxInterval:
                 d = random.uniform(connectionXRangeMinInterval, connectionXRangeMaxInterval)        
@@ -264,13 +271,64 @@ class TrackGenerator:
                 nextY = firstVertex.y + ((secondVertex.y - firstVertex.y) * td)
                 
                 nextPoint = Point(x = nextX, y = nextY)
-                connectionNodes.append(nextPoint)
+                connectionNodes[uuid4()] = nextPoint
 
                 connectionXRangeMinInterval = d + (connectionLengthNodeBuffer * connectionLength)
-            
-            return tuple(connectionNodes)
+
+            stopTotalFuel = random.uniform(0.50, 0.75) * edgeFuelCost
+
+            connectionNodePoints = list(connectionNodes.values())
+            numConnectionNodePoints = len(connectionNodePoints)
+
+            firstStop = connectionNodePoints[0]
+            lastStop = connectionNodePoints[-1]
+
+            firstStopDistance = GraphOps.scaledGraphPointDistance(graph = connectionGraph, p1 = firstStop, p2 = firstVertex)
+            firstStopDistanceIntervalSlice = firstStopDistance / numConnectionNodePoints
+
+            firstStopIntervalFuelCost = (firstStopDistanceIntervalSlice / connectionLength)  * stopTotalFuel
+
+            lastStopDistance = GraphOps.scaledGraphPointDistance(graph = connectionGraph, p1 = lastStop, p2 = secondVertex)
+            lastStopDistanceIntervalSlice = lastStopDistance / numConnectionNodePoints
+
+            lastStopIntervalFuelCost = (lastStopDistanceIntervalSlice / connectionLength) * stopTotalFuel
+
+            if numConnectionNodePoints == 1:
+                (connectionNodePointId, connectionNodePoint) = tuple(connectionNodes.items())[0]
+
+                connectionNodeStopInfo = tuple([StopInfo(stopPoint = connectionNodePoint, stopId = connectionNodePointId, fuelAvailable = floor(firstStopIntervalFuelCost + lastStopIntervalFuelCost))])
+                connectionNodeStopIds = tuple([connectionNodePointId])
+
+                return _EdgeStops(edgeStopInfo = connectionNodeStopInfo, edgeStopsFromVertex0 = connectionNodeStopIds, edgeStopsFromVertex1 = connectionNodeStopIds)
+            else:
+                stopData = []
+                connectionNodeIds = tuple(connectionNodes.keys())
+                
+                for nodeIndex in range(numConnectionNodePoints - 1):
+                    indexNodeId = connectionNodeIds[nodeIndex]
+                    nextNodeId = connectionNodeIds[nodeIndex + 1]
+
+                    indexNode = connectionNodes[indexNodeId]
+
+                    nodeDistance = GraphOps.scaledGraphPointDistance(graph = connectionGraph, p1 = indexNode, p2 = connectionNodes[nextNodeId])
+                    nodeFuelCost = nodeDistance * stopTotalFuel
+
+                    stopData.append(StopInfo(stopPoint = indexNode, stopId = indexNodeId, fuelAvailable = floor(firstStopIntervalFuelCost + lastStopIntervalFuelCost + nodeFuelCost)))
+
+                lastNodeId = connectionNodeIds[-1]
+                lastNode = connectionNodes[lastNodeId]
+
+                lastNodeFuelCost = (lastStopDistance / connectionLength) * stopTotalFuel
+                stopData.append(StopInfo(stopPoint = lastNode, stopId = lastNodeId, fuelAvailable = floor(lastNodeFuelCost)))
+
+                reversedConnectionNodeIds = tuple(reversed(connectionNodeIds))
+
+                if zeroIsFirstVertex:
+                    return _EdgeStops(edgeStopInfo = stopData, edgeStopsFromVertex0 = connectionNodeIds, edgeStopsFromVertex1 = reversedConnectionNodeIds)
+                else:
+                    return _EdgeStops(edgeStopInfo = stopData, edgeStopsFromVertex0 = reversedConnectionNodeIds, edgeStopsFromVertex1 = connectionNodeIds)
         else:
-            return tuple()
+            return _EdgeStops(edgeStopInfo = tuple(), edgeStopsFromVertex0 = tuple(), edgeStopsFromVertex1 = tuple())
         
     # Handles observed issues with some trackNodes exceeding region bounds by bounding them to mins/maxes.
     def _boundTrackNodesWithinRegion(graph: Graph, regionWidth: float, regionWidthOffset: float, regionHeight: float, regionHeightOffset: float, doubledNodeRadius: float):
@@ -444,7 +502,8 @@ class TrackGenerator:
         lonelyConnectionMinLengthQuantile: float, 
         connectionLengthVertexPadding: float, 
         connectionLengthNodeBuffer: float,
-        destinationDistanceUpperQuantile: float
+        destinationDistanceUpperQuantile: float,
+        maxFuelCost: float
     ) -> Track:
         diagramRegionSites = tuple((Point(x = random.random(), y = random.random()) for _ in range(numDiagramRegions)))
 
@@ -663,7 +722,28 @@ class TrackGenerator:
         
         finalizedExistingConnectionEdges = finalizedExistingConnections.edges()
 
-        stops = { existingConnectionEdge.edgeId: TrackGenerator._generateStopsOnConnection(connectionGraph = finalizedExistingConnections, connection = existingConnectionEdge.edgeVertices, connectionLengthVertexPadding = connectionLengthVertexPadding, connectionLengthNodeBuffer = connectionLengthNodeBuffer, minEdgeLengthForStopsGeneration = minEdgeStopLength) for existingConnectionEdge in finalizedExistingConnectionEdges}
+        maxEdgeLength = max((edge.edgeLength for edge in finalizedExistingConnectionEdges))
+        
+        edgeFuelCosts = {}
+        edgeLengthProportions = {}
+        
+        for edge in finalizedExistingConnectionEdges:
+            edgeLengthProportion = edge.edgeLength / maxEdgeLength
+            proportionalFuelCost = floor(edgeLengthProportion * maxFuelCost)
+
+            edgeId = edge.edgeId
+
+            edgeFuelCosts[edgeId] = proportionalFuelCost
+            edgeLengthProportions[edgeId] = edgeLengthProportion
+
+        stopsInfo = { existingConnectionEdge.edgeId: TrackGenerator._generateStopsOnConnection(connectionGraph = finalizedExistingConnections, connection = existingConnectionEdge.edgeVertices, connectionLengthVertexPadding = connectionLengthVertexPadding, connectionLengthNodeBuffer = connectionLengthNodeBuffer, minEdgeLengthForStopsGeneration = minEdgeStopLength, edgeFuelCost = edgeFuelCosts[existingConnectionEdge.edgeId]) for existingConnectionEdge in finalizedExistingConnectionEdges}
+
+        edgeInfo = {}
+        for edge in finalizedExistingConnectionEdges:
+            edgeId = edge.edgeId
+            edgeStopInfo = stopsInfo[edgeId]
+
+            edgeInfo[edge.edgeId] = EdgeInfo(fuelCost = edgeFuelCosts[edgeId], edgeLengthProportion = edgeLengthProportions[edgeId], edgeStopInfo = edgeStopInfo.edgeStopInfo, edgeStopsFromVertex0 = edgeStopInfo.edgeStopsFromVertex0, edgeStopsFromVertex1 = edgeStopInfo.edgeStopsFromVertex1)
 
         nodes = { existingConnectionNode.nodeId: GraphOps.graphVertex(graph = finalizedExistingConnections, vertexId = existingConnectionNode.nodeId) for existingConnectionNode in finalizedExistingConnections.nodes()}
 
@@ -680,8 +760,20 @@ class TrackGenerator:
         destinationNodeId = random.choice(possibleDestinationNodeIds)
 
         destinationNode = nodes[destinationNodeId]
-        nodeInfo = { finalNode.id: NodeInfo(distanceToDestination = Point.distance(p1 = finalNode.node, p2 = destinationNode), numNeighbors = len(GraphOps.graphVertexNeighborIds(graph = finalizedExistingConnections, vertexId = finalNode.id))) for finalNode in finalNodes }
+        nodeInfo = {}
+
+        for finalNode in finalNodes:
+            finalNodePoint = finalNode.node
+            finalNodeId = finalNode.id
+            
+            finalNodeNeighborIds = GraphOps.graphVertexNeighborIds(graph = finalizedExistingConnections, vertexId = finalNodeId)
+
+            distanceToDestination = Point.distance(p1 = finalNodePoint, p2 = destinationNode)
+            numNeighbors = len(finalNodeNeighborIds)
+
+            finalNodeInfo = NodeInfo(distanceToDestination = distanceToDestination, numNeighbors = numNeighbors)
+            nodeInfo[finalNode.id] = finalNodeInfo
         
         edges = { existingConnectionsEdge.edgeId: existingConnectionsEdge.edgeVertices for existingConnectionsEdge in finalizedExistingConnectionEdges }
 
-        return Track(nodes = nodes, stops = stops, edges = edges, startNodeId = startNode.id, destinationNodeId = destinationNodeId, nodeInfo = nodeInfo)
+        return Track(nodes = nodes, edges = edges, startNodeId = startNode.id, destinationNodeId = destinationNodeId, nodeInfo = nodeInfo, edgeInfo = edgeInfo)

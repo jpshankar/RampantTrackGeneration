@@ -2,28 +2,34 @@ from flask.json.provider import DefaultJSONProvider
 
 from ... import Track
 
-from uuid import UUID
-
-from voronout.Point import Point
+from dataclasses import asdict
 
 class FlaskRampantTrackGenerationJSONProvider(DefaultJSONProvider):
-    def _handlePointDict(self, pointDict: dict[UUID, Point]) -> dict[str, dict[str, float]]:
-        return {str(key): self.loads(repr(value)) for (key, value) in pointDict.items()}
-        
     def dumps(self, obj, **kw):
         if isinstance(obj, Track):
-            stopObj = {str(stopEdgeId): self.loads(f'[{",".join((repr(lineStop) for lineStop in edgeStops))}]') for (stopEdgeId, edgeStops) in obj.stops.items()}
-            edgesObj = {str(edgeId): self.loads(repr(edge)) for (edgeId, edge) in obj.edges.items()}
+            nodesObj = {}
+            for (nodeId, node) in obj.nodes.items():
+                nodeObj = asdict(node)
+                nodeObj["nodeInfo"] = obj.nodeInfo[nodeId]
 
-            nodeInfoObj = { str(nodeId): self.loads(repr(nodeInfo)) for (nodeId, nodeInfo) in obj.nodeInfo.items()}
-            
+                nodesObj[str(nodeId)] = nodeObj
+
+            edgesObj = {}
+            for (edgeId, edge) in obj.edges.items():
+                edgeObj = asdict(edge)
+
+                edgeObj["vertex0Id"] = str(edgeObj["vertex0Id"])
+                edgeObj["vertex1Id"] = str(edgeObj["vertex1Id"])
+
+                edgeObj["edgeInfo"] = obj.edgeInfo[edgeId]
+
+                edgesObj[str(edgeId)] = edgeObj
+
             return {
-                'nodes': self._handlePointDict(obj.nodes),
-                'stops': stopObj,
+                'nodes': nodesObj,
                 'edges': edgesObj,
                 'startNodeId': str(obj.startNodeId),
-                'destinationNodeId': str(obj.destinationNodeId),
-                'nodeInfo': nodeInfoObj
+                'destinationNodeId': str(obj.destinationNodeId)
             }
         else:
             return super().dumps(obj, **kw)
