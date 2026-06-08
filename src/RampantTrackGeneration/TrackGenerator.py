@@ -7,7 +7,7 @@ from .edges.Ops import Ops as EdgesOps
 from .graphs.data import GraphEdge, GraphNode
 from .graphs.Ops import Ops as GraphOps
 
-from math import floor, atan2, degrees
+from math import floor
 
 from rustworkx import articulation_points, connected_components, PyGraph as Graph
 
@@ -22,6 +22,11 @@ import random
 from uuid import uuid4
 
 from dataclasses import dataclass
+
+from aggdraw import Draw, Pen
+from PIL import Image
+
+import base64, io
 
 @dataclass(frozen=True)
 class _NodeWithId:
@@ -490,6 +495,43 @@ class TrackGenerator:
                 GraphOps.reconnectOldVertexNodeEdgesToNew(graph = graph, newVertexNode = nodeToConnectTo, oldVertexId = nodeToDisconnectId)
 
     @staticmethod
+    def _makeEdgeGraphics(graph: Graph, edgeInfo: EdgeVertexInfo, widthOffset: float, heightOffset: float, edgeGraphicsPen: Pen) -> str:
+        edgePoint0 = GraphOps.graphVertex(graph = graph, vertexId = edgeInfo.vertex0Id)
+        edgePoint1 = GraphOps.graphVertex(graph = graph, vertexId = edgeInfo.vertex1Id)
+
+        edgePointOffset0 = TrackGenerator._offsetPoint(originalPoint = edgePoint0, widthOffset = widthOffset, heightOffset = heightOffset)
+        edgePointOffset1 = TrackGenerator._offsetPoint(originalPoint = edgePoint1, widthOffset = widthOffset, heightOffset = heightOffset)
+
+        edgeDx = edgePointOffset1.x - edgePointOffset0.x
+        edgeDxNegative = edgeDx < 0.0
+
+        edgeDy = edgePointOffset1.y - edgePointOffset0.y
+        edgeDyNegative = edgeDy < 0.0
+
+        cropTuple = None
+        
+        if edgeDxNegative and not edgeDyNegative:
+            cropTuple = (edgePointOffset1.x - 5, edgePointOffset0.y - 5, edgePointOffset0.x + 5, edgePointOffset1.y + 5)
+        elif edgeDxNegative and edgeDyNegative:
+            cropTuple = (edgePointOffset1.x - 5, edgePointOffset1.y - 5, edgePointOffset0.x + 5, edgePointOffset0.y + 5)
+        elif not edgeDxNegative and not edgeDyNegative:
+            cropTuple = (edgePointOffset0.x - 5, edgePointOffset0.y - 5, edgePointOffset1.x + 5, edgePointOffset1.y + 5)
+        elif not edgeDxNegative and edgeDyNegative:
+            cropTuple = (edgePointOffset0.x - 5, edgePointOffset1.y - 5, edgePointOffset1.x + 5, edgePointOffset0.y + 5)
+
+        edgeCanvas = Draw("RGBA", (graph.attrs["width"] + 2 * widthOffset, graph.attrs["height"] + 2 * heightOffset), (255, 255, 255, 0))
+        edgeCanvas.line((edgePointOffset0.x, edgePointOffset0.y, edgePointOffset1.x, edgePointOffset1.y), edgeGraphicsPen)
+
+        edgeImage = Image.frombytes(edgeCanvas.mode, edgeCanvas.size, edgeCanvas.tobytes())
+
+        croppedEdgeImage = edgeImage.crop(box = cropTuple)
+
+        croppedEdgeImageBytesIo = io.BytesIO()
+        croppedEdgeImage.save(croppedEdgeImageBytesIo, format="PNG")
+
+        return str(base64.b64encode(croppedEdgeImageBytesIo.getvalue())).rstrip("'").lstrip("b'")
+    
+    @staticmethod
     def generateTrack(
         diagramWidth: int,
         diagramWidthOffset: float,
@@ -739,11 +781,18 @@ class TrackGenerator:
         stopsInfo = { existingConnectionEdge.edgeId: TrackGenerator._generateStopsOnConnection(connectionGraph = finalizedExistingConnections, connection = existingConnectionEdge.edgeVertices, connectionLengthVertexPadding = connectionLengthVertexPadding, connectionLengthNodeBuffer = connectionLengthNodeBuffer, minEdgeLengthForStopsGeneration = minEdgeStopLength, edgeFuelCost = edgeFuelCosts[existingConnectionEdge.edgeId]) for existingConnectionEdge in finalizedExistingConnectionEdges}
 
         edgeInfo = {}
+
+        edgeDefaultPen = Pen((216, 218, 221), 5, 128)
+        edgeFocusedPen = Pen((162, 147, 97), 5, 128)
+
         for edge in finalizedExistingConnectionEdges:
             edgeId = edge.edgeId
             edgeStopInfo = stopsInfo[edgeId]
 
-            edgeInfo[edge.edgeId] = EdgeInfo(fuelCost = edgeFuelCosts[edgeId], edgeLengthProportion = edgeLengthProportions[edgeId], edgeStopInfo = edgeStopInfo.edgeStopInfo, edgeStopsFromVertex0 = edgeStopInfo.edgeStopsFromVertex0, edgeStopsFromVertex1 = edgeStopInfo.edgeStopsFromVertex1)
+            edgeDefaultImageB64 = TrackGenerator._makeEdgeGraphics(graph = finalizedExistingConnections, edgeInfo = edge.edgeVertices, widthOffset = diagramWidthOffset, heightOffset = diagramHeightOffset, edgeGraphicsPen = edgeDefaultPen)
+            edgeFocusedImageB64 = TrackGenerator._makeEdgeGraphics(graph = finalizedExistingConnections, edgeInfo = edge.edgeVertices, widthOffset = diagramWidthOffset, heightOffset = diagramHeightOffset, edgeGraphicsPen = edgeFocusedPen)
+
+            edgeInfo[edge.edgeId] = EdgeInfo(fuelCost = edgeFuelCosts[edgeId], edgeLengthProportion = edgeLengthProportions[edgeId], edgeStopInfo = edgeStopInfo.edgeStopInfo, edgeStopsFromVertex0 = edgeStopInfo.edgeStopsFromVertex0, edgeStopsFromVertex1 = edgeStopInfo.edgeStopsFromVertex1, edgeImageDefaultB64 = edgeDefaultImageB64, edgeImageFocusedB64 = edgeFocusedImageB64)
 
         nodes = { existingConnectionNode.nodeId: GraphOps.graphVertex(graph = finalizedExistingConnections, vertexId = existingConnectionNode.nodeId) for existingConnectionNode in finalizedExistingConnections.nodes()}
 

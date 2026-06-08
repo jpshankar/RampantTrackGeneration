@@ -13,8 +13,11 @@ class EdgeInfo:
     edgeStopsFromVertex0: tuple[uuid4]
     edgeStopsFromVertex1: tuple[uuid4]
 
+    edgeImageDefaultB64: str
+    edgeImageFocusedB64: str
+
     def __repr__(self):
         edgeStopsFromVertex0Repr = [str(edgeStopFromVertex0) for edgeStopFromVertex0 in self.edgeStopsFromVertex0]
         edgeStopsFromVertex1Repr = [str(edgeStopFromVertex1) for edgeStopFromVertex1 in self.edgeStopsFromVertex1]
 
-        return f'{{"fuelCost": {self.fuelCost}, "edgeLengthProportion": {self.edgeLengthProportion}, "stopInfo": {list(self.edgeStopInfo)}, "edgeStopsFromVertex0": {edgeStopsFromVertex0Repr}, "edgeStopsFromVertex1": {edgeStopsFromVertex1Repr}}}'
+        return f'{{"fuelCost": {self.fuelCost}, "edgeLengthProportion": {self.edgeLengthProportion}, "stopInfo": {list(self.edgeStopInfo)}, "edgeStopsFromVertex0": {edgeStopsFromVertex0Repr}, "edgeStopsFromVertex1": {edgeStopsFromVertex1Repr}, "edgeImageDefault": \'{self.edgeImageDefaultB64}\', "edgeImageFocused": \'{self.edgeImageFocusedB64}\'}}'

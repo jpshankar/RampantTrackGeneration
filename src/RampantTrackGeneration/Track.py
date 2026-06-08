@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from .data import EdgeInfo, NodeInfo, StopInfo
+from .data import EdgeInfo, NodeInfo
 
 from .edges.data import EdgeVertexInfo
 
